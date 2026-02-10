@@ -2,27 +2,28 @@
   "name": "sse-streaming-reliability-kit",
   "version": "1.0.0",
   "description": "Fix buffering and timeouts end-to-end | Stack - Fastify/H3 • EventSource • NGINX/Traefik presets • Playwright • Wireshark",
+  "type": "module",
   "main": "index.js",
   "scripts": {
+    "dev": "node server/src/server.js",
+    "client:demo": "node client/src/demo-node.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "clean": "rm -rf node_modules dist build coverage .tsbuildinfo package-lock.json && npm install"
   },
-  "keywords": [
-    "sse",
-    "server-sent-events",
-    "streaming",
-    "fastify",
-    "reliability"
-  ],
+  "keywords": ["sse", "server-sent-events", "streaming", "fastify", "reliability"],
   "author": "",
-  "type": "module",
   "license": "ISC",
   "directories": {
     "doc": "docs",
     "test": "tests"
+  },
+  "dependencies": {
+    "dotenv": "^16.5.0",
+    "fastify": "^5.4.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
