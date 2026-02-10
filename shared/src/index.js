@@ -1,6 +1,15 @@
 // Types and constants
 export { ReservedEventTypes, RESERVED_PREFIXES, isDomainEventType } from './types.js';
 
+// Protocol constants
+export {
+  Defaults,
+  SSEHeaders,
+  DisconnectReason,
+  ClientState,
+  ServerStreamState,
+} from './constants.js';
+
 // Event ID generation
 export { generateEventId, extractTimestamp, isValidEventId } from './event-id.js';
 

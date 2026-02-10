@@ -170,11 +170,11 @@ describe('Event Envelope Schema', () => {
       expect(ids.size).toBe(1000);
     });
 
-    it('should generate sortable IDs', () => {
+    it('should generate sortable IDs', async () => {
       const id1 = generateEventId();
-      // Small delay to ensure different timestamp
+      await new Promise((r) => setTimeout(r, 2));
       const id2 = generateEventId();
-      expect(id1 < id2 || id1 === id2).toBe(true);
+      expect(id1 < id2).toBe(true);
     });
   });
 
