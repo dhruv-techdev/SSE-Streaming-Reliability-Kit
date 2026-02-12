@@ -12,19 +12,22 @@ export const config = {
   host: process.env.HOST || 'localhost',
   nodeEnv: process.env.NODE_ENV || 'development',
 
-  // SSE settings (ST-06)
+  // SSE settings
   sse: {
-    // Interval between tick events (ms)
     tickInterval: parseInt(process.env.SSE_TICK_INTERVAL, 10) || 2000,
-    
-    // Heartbeat interval - keep connection alive (ms)
     heartbeatInterval: parseInt(process.env.SSE_HEARTBEAT_INTERVAL, 10) || 30000,
-    
-    // Client retry timeout suggestion (ms)
     retryTimeout: parseInt(process.env.SSE_RETRY_TIMEOUT, 10) || 3000,
-    
-    // Maximum events to buffer for replay
     maxBufferSize: parseInt(process.env.SSE_MAX_BUFFER_SIZE, 10) || 1000,
+  },
+
+  // Connection limits (ST-06)
+  connections: {
+    maxConcurrent: parseInt(process.env.MAX_CONNECTIONS, 10) || 1000,
+  },
+
+  // Shutdown settings (ST-05)
+  shutdown: {
+    gracePeriodMs: parseInt(process.env.SHUTDOWN_GRACE_PERIOD, 10) || 5000,
   },
 
   // Logging

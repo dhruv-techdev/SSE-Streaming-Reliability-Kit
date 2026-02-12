@@ -31,12 +31,12 @@ export class StreamManager {
       heartbeat_interval: this.heartbeatInterval,
     }, { retry: config.sse.retryTimeout });
 
-    // Start tick interval (ST-03)
+    // Start tick interval
     this.tickTimer = setInterval(() => {
       this.sendTick();
     }, this.tickInterval);
 
-    // Start heartbeat interval (ST-05)
+    // Start heartbeat interval
     this.heartbeatTimer = setInterval(() => {
       this.checkHeartbeat();
     }, this.heartbeatInterval);
@@ -45,7 +45,7 @@ export class StreamManager {
   }
 
   /**
-   * Send a tick event (ST-03)
+   * Send a tick event
    */
   sendTick() {
     if (!this.writer.connected) {
@@ -66,8 +66,7 @@ export class StreamManager {
   }
 
   /**
-   * Check if heartbeat is needed (ST-05)
-   * Only send heartbeat if no other event was sent recently
+   * Check if heartbeat is needed
    */
   checkHeartbeat() {
     if (!this.writer.connected) {
@@ -83,7 +82,7 @@ export class StreamManager {
   }
 
   /**
-   * Send a custom event through this stream
+   * Send a custom event
    */
   sendEvent(entity, action, payload, options = {}) {
     if (!this.writer.connected) return false;
