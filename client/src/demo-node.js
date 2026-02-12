@@ -1,39 +1,35 @@
 /**
- * SSE Client Demo (ST-01 to ST-06 compliant)
+ * SSE Client Demo / Verification Script (SSRK-74)
+ * Verifies server streaming works correctly
  */
 import http from 'http';
 import { parseSSEChunk, decodeSSE, ClientState, Defaults } from '../../shared/src/index.js';
 
 const host = process.env.HOST || 'localhost';
 const port = process.env.PORT || 3000;
+const duration = parseInt(process.env.DURATION, 10) || 15000;
 
-// Client state (ST-06)
-let state = ClientState.CONNECTING;
-let lastEventId = null;
-let retryCount = 0;
-let retryInterval = Defaults.RETRY_INTERVAL_MS;
-let timeoutTimer = null;
+// Verification counters
+const stats = {
+  connected: false,
+  eventsReceived: 0,
+  ticksReceived: 0,
+  heartbeatsReceived: 0,
+  controlEvents: 0,
+  errors: 0,
+  lastEventId: null,
+  startTime: null,
+  endTime: null,
+};
 
 function log(tag, message, data = '') {
-  const ts = new Date().toISOString();
-  console.log(`[${ts}] [${tag}] ${message}`, data);
-}
-
-function setState(newState) {
-  log('STATE', `${state} → ${newState}`);
-  state = newState;
-}
-
-function resetTimeout() {
-  if (timeoutTimer) clearTimeout(timeoutTimer);
-  timeoutTimer = setTimeout(() => {
-    log('TIMEOUT', `No event received in ${Defaults.CLIENT_TIMEOUT_MS}ms`);
-    reconnect('client_timeout');
-  }, Defaults.CLIENT_TIMEOUT_MS);
+  const ts = new Date().toISOString().split('T')[1].slice(0, -1);
+  const dataStr = data ? ` ${JSON.stringify(data)}` : '';
+  console.log(`[${ts}] [${tag.padEnd(10)}] ${message}${dataStr}`);
 }
 
 function connect() {
-  setState(ClientState.CONNECTING);
+  stats.startTime = Date.now();
   
   const options = {
     hostname: host,
@@ -46,107 +42,136 @@ function connect() {
     },
   };
 
-  // Add Last-Event-ID for resume (ST-04)
-  if (lastEventId) {
-    options.headers['Last-Event-ID'] = lastEventId;
-    log('RESUME', `Resuming from ${lastEventId}`);
-  }
-
   log('CONNECT', `Connecting to http://${host}:${port}/stream...`);
 
   const req = http.get(options, (res) => {
     if (res.statusCode !== 200) {
       log('ERROR', `HTTP ${res.statusCode}`);
-      reconnect('server_error');
-      return;
+      process.exit(1);
     }
 
-    setState(ClientState.OPEN);
-    retryCount = 0;
-    resetTimeout();
+    // Verify headers (ST-01)
+    const contentType = res.headers['content-type'];
+    if (contentType !== 'text/event-stream') {
+      log('FAIL', `Wrong Content-Type: ${contentType}`);
+    } else {
+      log('VERIFY', '✓ Content-Type: text/event-stream');
+    }
+
+    stats.connected = true;
+    log('CONNECTED', 'SSE connection established');
 
     res.on('data', (chunk) => {
-      resetTimeout(); // ST-03: Reset timeout on any data
-      
       const raw = chunk.toString();
-      const parsed = parseSSEChunk(raw);
+      const lines = raw.split('\n\n').filter(Boolean);
       
-      if (parsed.id) {
-        lastEventId = parsed.id; // ST-04: Track last ID
-      }
-      
-      if (parsed.retry) {
-        retryInterval = parsed.retry; // Update retry interval
-      }
-      
-      if (parsed.data) {
-        const { envelope, error } = decodeSSE(parsed.data);
-        if (error) {
-          log('PARSE_ERROR', error);
-        } else {
-          handleEvent(envelope);
+      for (const block of lines) {
+        const parsed = parseSSEChunk(block + '\n\n');
+        
+        if (parsed.id) {
+          stats.lastEventId = parsed.id;
+        }
+        
+        if (parsed.data) {
+          const { envelope, error } = decodeSSE(parsed.data);
+          if (error) {
+            log('ERROR', error);
+            stats.errors++;
+          } else {
+            handleEvent(envelope);
+          }
         }
       }
     });
 
     res.on('end', () => {
       log('END', 'Stream ended');
-      reconnect('stream_ended');
+      printSummary();
     });
   });
 
   req.on('error', (error) => {
     log('ERROR', error.message);
-    reconnect('network_error');
+    stats.errors++;
   });
 
-  // Auto-close after 30 seconds for demo
+  // Auto-close after duration
   setTimeout(() => {
-    log('DEMO', 'Closing connection after 30 seconds');
+    log('CLOSING', `Test duration (${duration}ms) reached`);
     req.destroy();
-    setState(ClientState.CLOSED);
-    if (timeoutTimer) clearTimeout(timeoutTimer);
-    process.exit(0);
-  }, 30000);
+    stats.endTime = Date.now();
+    printSummary();
+    process.exit(stats.errors > 0 ? 1 : 0);
+  }, duration);
 }
 
 function handleEvent(envelope) {
+  stats.eventsReceived++;
   const { type, payload, event_id, sequence } = envelope;
-  
+
+  // Verify envelope has required fields (ST-04)
+  if (!event_id || !type || !envelope.ts || !payload) {
+    log('FAIL', 'Missing required envelope fields', { event_id, type });
+    stats.errors++;
+    return;
+  }
+
   switch (type) {
     case 'control.open':
-      log('CONTROL', 'Connection opened', payload);
+      stats.controlEvents++;
+      log('CONTROL', '✓ control.open received', payload);
       break;
+      
+    case 'control.close':
+      stats.controlEvents++;
+      log('CONTROL', 'control.close received', payload);
+      break;
+      
     case 'control.reconnect':
-      log('CONTROL', 'Reconnect requested', payload);
+      stats.controlEvents++;
+      log('CONTROL', 'control.reconnect received', payload);
       break;
+      
     case 'system.heartbeat':
-      log('HEARTBEAT', `♥ ${event_id}`);
+      stats.heartbeatsReceived++;
+      log('HEARTBEAT', `♥ Heartbeat #${stats.heartbeatsReceived}`);
       break;
+      
     case 'system.error':
+      stats.errors++;
       log('ERROR', `${payload.code}: ${payload.message}`);
       break;
+      
     default:
-      log('EVENT', `[${type}] seq=${sequence || 'N/A'}`, payload);
+      if (type.startsWith('domain.')) {
+        stats.ticksReceived++;
+        log('EVENT', `✓ ${type} seq=${sequence || 'N/A'}`, payload);
+      } else {
+        log('EVENT', `Unknown type: ${type}`, payload);
+      }
   }
 }
 
-function reconnect(reason) {
-  if (state === ClientState.CLOSED) return;
-  if (timeoutTimer) clearTimeout(timeoutTimer);
+function printSummary() {
+  const elapsed = (stats.endTime || Date.now()) - stats.startTime;
   
-  retryCount++;
-  if (retryCount > Defaults.MAX_RETRY_ATTEMPTS) {
-    log('FATAL', `Max retries (${Defaults.MAX_RETRY_ATTEMPTS}) exceeded`);
-    setState(ClientState.CLOSED);
-    process.exit(1);
-  }
-
-  setState(ClientState.RETRYING);
-  log('RETRY', `Reason: ${reason}, attempt ${retryCount}/${Defaults.MAX_RETRY_ATTEMPTS}, waiting ${retryInterval}ms`);
-  
-  setTimeout(connect, retryInterval);
+  console.log(`
+╔═══════════════════════════════════════════════════════════╗
+║                    VERIFICATION SUMMARY                    ║
+╠═══════════════════════════════════════════════════════════╣
+║  Duration:        ${String(elapsed + 'ms').padEnd(38)}║
+║  Connected:       ${String(stats.connected ? 'YES ✓' : 'NO ✗').padEnd(38)}║
+║  Events Received: ${String(stats.eventsReceived).padEnd(38)}║
+║  Tick Events:     ${String(stats.ticksReceived).padEnd(38)}║
+║  Heartbeats:      ${String(stats.heartbeatsReceived).padEnd(38)}║
+║  Control Events:  ${String(stats.controlEvents).padEnd(38)}║
+║  Errors:          ${String(stats.errors).padEnd(38)}║
+║  Last Event ID:   ${String(stats.lastEventId || 'N/A').slice(0, 36).padEnd(38)}║
+╠═══════════════════════════════════════════════════════════╣
+║  RESULT: ${stats.connected && stats.ticksReceived > 0 && stats.errors === 0 ? 'PASS ✓                                          ' : 'FAIL ✗                                          '}║
+╚═══════════════════════════════════════════════════════════╝
+  `);
 }
 
-// Start
+// Start verification
 connect();
