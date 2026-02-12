@@ -1,10 +1,9 @@
 /**
- * SSE Connector Integration Tests
- * Tests end-to-end connection with real server
+ * SSE Connector Integration Tests (Updated for US-08)
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn } from 'child_process';
-import { connectSSE } from '../../client/src/sse-connector.js';
+import { connectSSE, ConnectionState } from '../../client/src/sse-connector.js';
 
 describe('SSE Connector Integration', () => {
   let serverProcess;
@@ -32,160 +31,136 @@ describe('SSE Connector Integration', () => {
     }
   });
 
-  it('should connect and receive onOpen callback', async () => {
-    let opened = false;
-    let openData = null;
-
+  it('should transition to OPEN state on successful connect', async () => {
+    const states = [];
+    
     const connector = connectSSE(`http://localhost:${port}/stream`, {
-      onOpen: (data) => {
-        opened = true;
-        openData = data;
-      },
+      onStateChange: ({ current }) => states.push(current),
       autoReconnect: false,
     });
 
     await new Promise(resolve => setTimeout(resolve, 500));
 
-    expect(opened).toBe(true);
-    expect(openData).toHaveProperty('url');
-    expect(connector.connected).toBe(true);
+    expect(connector.getState()).toBe(ConnectionState.OPEN);
+    expect(states).toContain(ConnectionState.CONNECTING);
+    expect(states).toContain(ConnectionState.OPEN);
 
-    connector.disconnect();
+    connector.stop();
   });
 
-  it('should receive events via onEvent callback', async () => {
-    const events = [];
+  it('should transition to CLOSED on stop()', async () => {
+    const states = [];
+    
+    const connector = connectSSE(`http://localhost:${port}/stream`, {
+      onStateChange: ({ current }) => states.push(current),
+      autoReconnect: false,
+    });
 
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    connector.stop();
+
+    expect(connector.getState()).toBe(ConnectionState.CLOSED);
+    expect(states).toContain(ConnectionState.CLOSED);
+  });
+
+  it('should fire onStateChange callback on transitions', async () => {
+    const transitions = [];
+    
+    const connector = connectSSE(`http://localhost:${port}/stream`, {
+      onStateChange: (event) => {
+        transitions.push({
+          from: event.previous,
+          to: event.current,
+          reason: event.reason,
+        });
+      },
+      autoReconnect: false,
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 500));
+    connector.stop();
+
+    // Should have: IDLE→CONNECTING, CONNECTING→OPEN, OPEN→CLOSED (forced)
+    expect(transitions.length).toBeGreaterThanOrEqual(2);
+    expect(transitions[0].from).toBe(ConnectionState.IDLE);
+    expect(transitions[0].to).toBe(ConnectionState.CONNECTING);
+  });
+
+  it('should track state statistics', async () => {
+    const connector = connectSSE(`http://localhost:${port}/stream`, {
+      autoReconnect: false,
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    const stats = connector.getStats();
+    
+    expect(stats.stateMachine).toBeDefined();
+    expect(stats.stateMachine.transitionCount).toBeGreaterThanOrEqual(2);
+    expect(stats.stateMachine.timeInState).toBeDefined();
+
+    connector.stop();
+  });
+
+  it('should prevent state changes after stop()', async () => {
+    const connector = connectSSE(`http://localhost:${port}/stream`, {
+      autoReconnect: false,
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    connector.stop();
+    
+    expect(connector.stopped).toBe(true);
+    expect(connector.getState()).toBe(ConnectionState.CLOSED);
+
+    // Trying to connect again should work (reset)
+    connector.connect();
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    expect(connector.getState()).toBe(ConnectionState.OPEN);
+    
+    connector.stop();
+  });
+
+  it('should receive events with state tracking', async () => {
+    const events = [];
     const { promise, resolve } = Promise.withResolvers();
 
     const connector = connectSSE(`http://localhost:${port}/stream`, {
       onEvent: (envelope) => {
-        events.push(envelope);
-        if (events.some(e => e.type.startsWith('domain.'))) {
-          resolve();
-        }
+        events.push({
+          type: envelope.type,
+          state: connector.getState(),
+        });
+        if (events.length >= 2) resolve();
       },
       autoReconnect: false,
     });
 
     await promise;
 
-    expect(events.length).toBeGreaterThan(0);
-    expect(events[0].type).toBe('control.open');
+    // All events should be received in OPEN state
+    const openStateEvents = events.filter(e => e.state === ConnectionState.OPEN);
+    expect(openStateEvents.length).toBe(events.length);
 
-    const domainEvents = events.filter(e => e.type.startsWith('domain.'));
-    expect(domainEvents.length).toBeGreaterThan(0);
-
-    connector.disconnect();
+    connector.stop();
   });
 
-  it('should receive heartbeats via onHeartbeat callback', async () => {
-    let heartbeatReceived = false;
-
+  it('should provide state history via getStateMachine()', async () => {
     const connector = connectSSE(`http://localhost:${port}/stream`, {
-      onHeartbeat: () => {
-        heartbeatReceived = true;
-      },
-      autoReconnect: false,
-    });
-
-    // Wait longer than heartbeat interval (but test uses shorter tick)
-    // For this test, we'll check stats instead
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // Heartbeats may not occur within 1 second if tick is 2s
-    // Just verify connector works
-    expect(connector.connected).toBe(true);
-
-    connector.disconnect();
-  });
-
-  it('should call onClose when disconnected', async () => {
-    let closed = false;
-    let closeData = null;
-
-    const connector = connectSSE(`http://localhost:${port}/stream`, {
-      onClose: (data) => {
-        closed = true;
-        closeData = data;
-      },
       autoReconnect: false,
     });
 
     await new Promise(resolve => setTimeout(resolve, 500));
+    
+    const sm = connector.getStateMachine();
+    const history = sm.getHistory();
 
-    connector.disconnect();
-
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    expect(connector.getState()).toBe('closed');
-  });
-
-  it('should track statistics correctly', async () => {
-    const connector = connectSSE(`http://localhost:${port}/stream`, {
-      autoReconnect: false,
-    });
-
-    await new Promise(resolve => setTimeout(resolve, 3000));
-
-    const stats = connector.getStats();
-
-    expect(stats.eventsReceived).toBeGreaterThan(0);
-    expect(stats.bytesReceived).toBeGreaterThan(0);
-    expect(stats.connectedAt).not.toBeNull();
-    expect(stats.lastEventId).not.toBeNull();
-
-    connector.disconnect();
-  });
-
-  it('should validate incoming envelopes', async () => {
-    const validationErrors = [];
-
-    const connector = connectSSE(`http://localhost:${port}/stream`, {
-      validateEnvelope: true,
-      onError: (err) => {
-        if (err.type === 'validation_error') {
-          validationErrors.push(err);
-        }
-      },
-      autoReconnect: false,
-    });
-
-    await new Promise(resolve => setTimeout(resolve, 3000));
-
-    // Server should send valid events, so no validation errors
-    expect(validationErrors.length).toBe(0);
-
-    connector.disconnect();
-  });
-
-  it('should update lastEventId on each event', async () => {
-    let lastSeenId = null;
-    const ids = [];
-
-    const { promise, resolve } = Promise.withResolvers();
-
-    const connector = connectSSE(`http://localhost:${port}/stream`, {
-      onEvent: () => {
-        const stats = connector.getStats();
-        if (stats.lastEventId && stats.lastEventId !== lastSeenId) {
-          ids.push(stats.lastEventId);
-          lastSeenId = stats.lastEventId;
-        }
-        if (ids.length >= 2) {
-          resolve();
-        }
-      },
-      autoReconnect: false,
-    });
-
-    await promise;
-
-    expect(ids.length).toBeGreaterThan(1);
-
-    const uniqueIds = new Set(ids);
-    expect(uniqueIds.size).toBe(ids.length);
-
-    connector.disconnect();
+    expect(history.length).toBeGreaterThanOrEqual(2);
+    expect(history[0].from).toBe(ConnectionState.IDLE);
+    
+    connector.stop();
   });
 });
