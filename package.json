@@ -4,12 +4,17 @@
   "description": "Fix buffering and timeouts end-to-end | Stack - Fastify/H3 • EventSource • NGINX/Traefik presets • Playwright • Wireshark",
   "type": "module",
   "main": "index.js",
+  "exports": {
+    "./client": "./client/src/index.js",
+    "./shared": "./shared/src/index.js"
+  },
   "scripts": {
     "dev": "node server/src/server.js",
     "client:demo": "node client/src/demo-node.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run tests/integration",
+    "test:unit": "vitest run tests/shared tests/server tests/client",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
