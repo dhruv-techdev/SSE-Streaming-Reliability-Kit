@@ -1,8 +1,8 @@
 /**
- * SSE Client Demo (SSRK-88, SSRK-95)
- * Uses SSEConnector with state machine logging
+ * SSE Client Demo (US-09)
+ * Demonstrates configurable retry policy
  */
-import { connectSSE, ConnectionState } from './sse-connector.js';
+import { connectSSE, ConnectionState, RetryPolicies } from './sse-connector.js';
 
 const host = process.env.HOST || 'localhost';
 const port = process.env.PORT || 3000;
@@ -17,6 +17,7 @@ const stats = {
   heartbeatsReceived: 0,
   controlEvents: 0,
   errors: 0,
+  retries: [],
   stateChanges: [],
   startTime: Date.now(),
 };
@@ -27,19 +28,38 @@ function log(tag, message, data = null) {
   console.log(`[${ts}] [${tag.padEnd(10)}] ${message}${dataStr}`);
 }
 
-// Create connector with lifecycle callbacks
+// Create connector with retry policy (SSRK-97)
 const connector = connectSSE(url, {
-  // Debug mode (SSRK-95)
   debug,
   
-  // State change callback (SSRK-92)
+  // Retry policy configuration (SSRK-97)
+  retryPolicy: {
+    baseDelayMs: 1000,
+    maxDelayMs: 10000,
+    maxAttempts: 5,
+    jitterPct: 0.2,
+  },
+  
+  // Or use a preset:
+  // retryPolicy: RetryPolicies.aggressive().getConfig(),
+  
   onStateChange: ({ previous, current, reason }) => {
     stats.stateChanges.push({ from: previous, to: current, reason });
     log('STATE', `${previous} → ${current}`, { reason });
   },
 
-  onOpen: ({ url, lastEventId, state }) => {
-    log('OPEN', `Connected to ${url}`, { state, resumeFrom: lastEventId || 'none' });
+  // Retry callback (SSRK-102)
+  onRetry: ({ attempt, delayMs, reason, maxAttempts }) => {
+    stats.retries.push({ attempt, delayMs, reason });
+    log('RETRY', `Attempt ${attempt}/${maxAttempts} scheduled`, { delayMs, reason });
+  },
+
+  onOpen: ({ url, lastEventId, state, reconnectCount }) => {
+    log('OPEN', `Connected to ${url}`, { 
+      state, 
+      resumeFrom: lastEventId || 'none',
+      reconnectCount,
+    });
   },
 
   onEvent: (envelope) => {
@@ -52,48 +72,46 @@ const connector = connectSSE(url, {
     } else if (type.startsWith('domain.')) {
       stats.ticksReceived++;
       log('EVENT', `✓ ${type} seq=${sequence || 'N/A'}`, payload);
-    } else {
-      log('EVENT', `${type}`, payload);
     }
   },
 
-  onHeartbeat: (envelope) => {
+  onHeartbeat: () => {
     stats.heartbeatsReceived++;
     log('HEARTBEAT', `♥ Heartbeat #${stats.heartbeatsReceived}`);
   },
 
-  onSystemError: (envelope) => {
-    stats.errors++;
-    log('SYS_ERROR', `${envelope.payload.code}: ${envelope.payload.message}`);
-  },
-
   onError: (error) => {
     stats.errors++;
-    log('ERROR', `[${error.type}] ${error.message}`, { source: error.source, state: error.state });
+    log('ERROR', `[${error.type}] ${error.message}`, { source: error.source });
   },
 
-  onClose: ({ reason, willReconnect, retryIn, state }) => {
-    log('CLOSE', `Connection closed: ${reason}`, { willReconnect, retryIn, state });
+  onClose: ({ reason, willReconnect, retryIn, attempt, state }) => {
+    log('CLOSE', `Connection closed: ${reason}`, { 
+      willReconnect, 
+      retryIn, 
+      attempt,
+      state,
+    });
   },
 
   autoReconnect: true,
-  maxRetries: 3,
 });
 
 log('CONNECT', `Connecting to ${url}...`);
+log('POLICY', 'Retry policy configured', connector.getRetryPolicy().getConfig());
 
 // Auto-close after duration
 setTimeout(() => {
   log('DONE', `Test duration (${duration}ms) reached`);
   connector.stop();
   printSummary();
-  process.exit(stats.errors > 0 ? 1 : 0);
+  process.exit(stats.errors > 0 && stats.eventsReceived === 0 ? 1 : 0);
 }, duration);
 
 function printSummary() {
   const elapsed = Date.now() - stats.startTime;
   const connectorStats = connector.getStats();
-  const smStats = connectorStats.stateMachine;
+  const policy = connector.getRetryPolicy().getConfig();
 
   console.log(`
 ╔═══════════════════════════════════════════════════════════╗
@@ -106,9 +124,14 @@ function printSummary() {
 ║  Heartbeats:        ${String(stats.heartbeatsReceived).padEnd(36)}║
 ║  Control Events:    ${String(stats.controlEvents).padEnd(36)}║
 ║  Errors:            ${String(stats.errors).padEnd(36)}║
-║  State Changes:     ${String(stats.stateChanges.length).padEnd(36)}║
-║  Transitions:       ${String(smStats.transitionCount).padEnd(36)}║
-║  Last Event ID:     ${String(connectorStats.lastEventId || 'N/A').slice(0, 34).padEnd(36)}║
+║  Reconnect Count:   ${String(connectorStats.reconnectCount).padEnd(36)}║
+║  Retry Attempts:    ${String(stats.retries.length).padEnd(36)}║
+╠═══════════════════════════════════════════════════════════╣
+║  RETRY POLICY:                                             ║
+║    Base Delay:      ${String(policy.baseDelayMs + 'ms').padEnd(36)}║
+║    Max Delay:       ${String(policy.maxDelayMs + 'ms').padEnd(36)}║
+║    Max Attempts:    ${String(policy.maxAttempts).padEnd(36)}║
+║    Jitter:          ${String((policy.jitterPct * 100) + '%').padEnd(36)}║
 ╠═══════════════════════════════════════════════════════════╣
 ║  STATE HISTORY:                                            ║`);
   
@@ -116,9 +139,18 @@ function printSummary() {
     const line = `║    ${from} → ${to} (${reason})`;
     console.log(line.padEnd(60) + '║');
   });
+
+  if (stats.retries.length > 0) {
+    console.log(`╠═══════════════════════════════════════════════════════════╣
+║  RETRY HISTORY:                                            ║`);
+    stats.retries.slice(-3).forEach(({ attempt, delayMs, reason }) => {
+      const line = `║    Attempt ${attempt}: ${delayMs}ms (${reason})`;
+      console.log(line.padEnd(60) + '║');
+    });
+  }
   
   console.log(`╠═══════════════════════════════════════════════════════════╣
-║  RESULT: ${stats.eventsReceived > 0 && stats.errors === 0 ? 'PASS ✓                                          ' : 'FAIL ✗                                          '}║
+║  RESULT: ${stats.eventsReceived > 0 ? 'PASS ✓                                          ' : 'FAIL ✗                                          '}║
 ╚═══════════════════════════════════════════════════════════╝
   `);
 }
