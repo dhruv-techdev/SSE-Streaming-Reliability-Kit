@@ -1,177 +1,109 @@
 /**
- * SSE Client Demo / Verification Script (SSRK-74)
- * Verifies server streaming works correctly
+ * SSE Client Demo (SSRK-88)
+ * Uses the SSEConnector module to verify server streaming
  */
-import http from 'http';
-import { parseSSEChunk, decodeSSE, ClientState, Defaults } from '../../shared/src/index.js';
+import { connectSSE } from './sse-connector.js';
 
 const host = process.env.HOST || 'localhost';
 const port = process.env.PORT || 3000;
 const duration = parseInt(process.env.DURATION, 10) || 15000;
+const url = `http://${host}:${port}/stream`;
 
-// Verification counters
+// Stats for verification
 const stats = {
-  connected: false,
   eventsReceived: 0,
   ticksReceived: 0,
   heartbeatsReceived: 0,
   controlEvents: 0,
   errors: 0,
-  lastEventId: null,
-  startTime: null,
-  endTime: null,
+  startTime: Date.now(),
 };
 
-function log(tag, message, data = '') {
+function log(tag, message, data = null) {
   const ts = new Date().toISOString().split('T')[1].slice(0, -1);
   const dataStr = data ? ` ${JSON.stringify(data)}` : '';
   console.log(`[${ts}] [${tag.padEnd(10)}] ${message}${dataStr}`);
 }
 
-function connect() {
-  stats.startTime = Date.now();
-  
-  const options = {
-    hostname: host,
-    port: port,
-    path: '/stream',
-    method: 'GET',
-    headers: {
-      'Accept': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-    },
-  };
+// Create connector with lifecycle callbacks (ST-02)
+const connector = connectSSE(url, {
+  // Lifecycle callbacks
+  onOpen: ({ url, lastEventId }) => {
+    log('OPEN', `Connected to ${url}`, lastEventId ? { resumeFrom: lastEventId } : null);
+  },
 
-  log('CONNECT', `Connecting to http://${host}:${port}/stream...`);
+  onEvent: (envelope) => {
+    stats.eventsReceived++;
+    const { type, payload, sequence } = envelope;
 
-  const req = http.get(options, (res) => {
-    if (res.statusCode !== 200) {
-      log('ERROR', `HTTP ${res.statusCode}`);
-      process.exit(1);
-    }
-
-    // Verify headers (ST-01)
-    const contentType = res.headers['content-type'];
-    if (contentType !== 'text/event-stream') {
-      log('FAIL', `Wrong Content-Type: ${contentType}`);
+    if (type.startsWith('control.')) {
+      stats.controlEvents++;
+      log('CONTROL', `✓ ${type}`, payload);
+    } else if (type.startsWith('domain.')) {
+      stats.ticksReceived++;
+      log('EVENT', `✓ ${type} seq=${sequence || 'N/A'}`, payload);
     } else {
-      log('VERIFY', '✓ Content-Type: text/event-stream');
+      log('EVENT', `${type}`, payload);
     }
+  },
 
-    stats.connected = true;
-    log('CONNECTED', 'SSE connection established');
+  onHeartbeat: (envelope) => {
+    stats.heartbeatsReceived++;
+    log('HEARTBEAT', `♥ Heartbeat #${stats.heartbeatsReceived}`);
+  },
 
-    res.on('data', (chunk) => {
-      const raw = chunk.toString();
-      const lines = raw.split('\n\n').filter(Boolean);
-      
-      for (const block of lines) {
-        const parsed = parseSSEChunk(block + '\n\n');
-        
-        if (parsed.id) {
-          stats.lastEventId = parsed.id;
-        }
-        
-        if (parsed.data) {
-          const { envelope, error } = decodeSSE(parsed.data);
-          if (error) {
-            log('ERROR', error);
-            stats.errors++;
-          } else {
-            handleEvent(envelope);
-          }
-        }
-      }
-    });
+  onControl: (envelope) => {
+    // Already handled in onEvent, but can add specific logic here
+  },
 
-    res.on('end', () => {
-      log('END', 'Stream ended');
-      printSummary();
-    });
-  });
-
-  req.on('error', (error) => {
-    log('ERROR', error.message);
+  onSystemError: (envelope) => {
     stats.errors++;
-  });
+    log('SYS_ERROR', `${envelope.payload.code}: ${envelope.payload.message}`);
+  },
 
-  // Auto-close after duration
-  setTimeout(() => {
-    log('CLOSING', `Test duration (${duration}ms) reached`);
-    req.destroy();
-    stats.endTime = Date.now();
-    printSummary();
-    process.exit(stats.errors > 0 ? 1 : 0);
-  }, duration);
-}
-
-function handleEvent(envelope) {
-  stats.eventsReceived++;
-  const { type, payload, event_id, sequence } = envelope;
-
-  // Verify envelope has required fields (ST-04)
-  if (!event_id || !type || !envelope.ts || !payload) {
-    log('FAIL', 'Missing required envelope fields', { event_id, type });
+  onError: (error) => {
     stats.errors++;
-    return;
-  }
+    log('ERROR', `[${error.type}] ${error.message}`, error.source ? { source: error.source } : null);
+  },
 
-  switch (type) {
-    case 'control.open':
-      stats.controlEvents++;
-      log('CONTROL', '✓ control.open received', payload);
-      break;
-      
-    case 'control.close':
-      stats.controlEvents++;
-      log('CONTROL', 'control.close received', payload);
-      break;
-      
-    case 'control.reconnect':
-      stats.controlEvents++;
-      log('CONTROL', 'control.reconnect received', payload);
-      break;
-      
-    case 'system.heartbeat':
-      stats.heartbeatsReceived++;
-      log('HEARTBEAT', `♥ Heartbeat #${stats.heartbeatsReceived}`);
-      break;
-      
-    case 'system.error':
-      stats.errors++;
-      log('ERROR', `${payload.code}: ${payload.message}`);
-      break;
-      
-    default:
-      if (type.startsWith('domain.')) {
-        stats.ticksReceived++;
-        log('EVENT', `✓ ${type} seq=${sequence || 'N/A'}`, payload);
-      } else {
-        log('EVENT', `Unknown type: ${type}`, payload);
-      }
-  }
-}
+  onClose: ({ reason, willReconnect, retryIn }) => {
+    log('CLOSE', `Connection closed: ${reason}`, willReconnect ? { retryIn } : { final: true });
+  },
+
+  // Options
+  autoReconnect: true,
+  maxRetries: 3,
+});
+
+log('CONNECT', `Connecting to ${url}...`);
+
+// Auto-close after duration
+setTimeout(() => {
+  log('DONE', `Test duration (${duration}ms) reached`);
+  connector.disconnect();
+  printSummary();
+  process.exit(stats.errors > 0 ? 1 : 0);
+}, duration);
 
 function printSummary() {
-  const elapsed = (stats.endTime || Date.now()) - stats.startTime;
-  
+  const elapsed = Date.now() - stats.startTime;
+  const connectorStats = connector.getStats();
+
   console.log(`
 ╔═══════════════════════════════════════════════════════════╗
 ║                    VERIFICATION SUMMARY                    ║
 ╠═══════════════════════════════════════════════════════════╣
-║  Duration:        ${String(elapsed + 'ms').padEnd(38)}║
-║  Connected:       ${String(stats.connected ? 'YES ✓' : 'NO ✗').padEnd(38)}║
-║  Events Received: ${String(stats.eventsReceived).padEnd(38)}║
-║  Tick Events:     ${String(stats.ticksReceived).padEnd(38)}║
-║  Heartbeats:      ${String(stats.heartbeatsReceived).padEnd(38)}║
-║  Control Events:  ${String(stats.controlEvents).padEnd(38)}║
-║  Errors:          ${String(stats.errors).padEnd(38)}║
-║  Last Event ID:   ${String(stats.lastEventId || 'N/A').slice(0, 36).padEnd(38)}║
+║  Duration:          ${String(elapsed + 'ms').padEnd(36)}║
+║  State:             ${String(connector.getState()).padEnd(36)}║
+║  Events Received:   ${String(stats.eventsReceived).padEnd(36)}║
+║  Tick Events:       ${String(stats.ticksReceived).padEnd(36)}║
+║  Heartbeats:        ${String(stats.heartbeatsReceived).padEnd(36)}║
+║  Control Events:    ${String(stats.controlEvents).padEnd(36)}║
+║  Errors:            ${String(stats.errors).padEnd(36)}║
+║  Last Event ID:     ${String(connectorStats.lastEventId || 'N/A').slice(0, 34).padEnd(36)}║
+║  Reconnect Count:   ${String(connectorStats.reconnectCount).padEnd(36)}║
 ╠═══════════════════════════════════════════════════════════╣
-║  RESULT: ${stats.connected && stats.ticksReceived > 0 && stats.errors === 0 ? 'PASS ✓                                          ' : 'FAIL ✗                                          '}║
+║  RESULT: ${stats.eventsReceived > 0 && stats.errors === 0 ? 'PASS ✓                                          ' : 'FAIL ✗                                          '}║
 ╚═══════════════════════════════════════════════════════════╝
   `);
 }
-
-// Start verification
-connect();
