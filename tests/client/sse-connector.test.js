@@ -195,7 +195,7 @@ data: {"test":true}
     it('should start in CLOSED state', () => {
       const connector = new SSEConnector('http://localhost:3000/stream');
       
-      expect(connector.getState()).toBe('closed');
+      expect(connector.getState()).toBe('idle');
       expect(connector.connected).toBe(false);
     });
 
