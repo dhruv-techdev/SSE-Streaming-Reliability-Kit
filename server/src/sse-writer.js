@@ -1,6 +1,7 @@
 /**
- * SSE Writer Utility (SSRK-69)
+ * SSE Writer Utility (SSRK-69, SSRK-78)
  * Standardizes how events are formatted and flushed
+ * Includes safe error handling for dead sockets
  */
 import {
   encodeSSE,
@@ -19,15 +20,55 @@ export class SSEWriter {
     this.eventCount = 0;
     this.lastEventId = null;
     this.onClose = options.onClose || (() => {});
+    this.onError = options.onError || (() => {});
+    this.connectionId = options.connectionId || 'unknown';
   }
 
   /**
    * Initialize the SSE connection with proper headers (ST-01)
    */
   init() {
-    this.res.writeHead(200, SSEHeaders);
-    this.isOpen = true;
-    return this;
+    try {
+      this.res.writeHead(200, SSEHeaders);
+      this.isOpen = true;
+      return this;
+    } catch (err) {
+      this.handleWriteError(err, 'init');
+      return this;
+    }
+  }
+
+  /**
+   * Safe write wrapper (ST-04)
+   * Catches errors when writing to dead sockets
+   */
+  safeWrite(data) {
+    if (!this.isOpen) return false;
+    
+    try {
+      // Check if socket is still writable
+      if (this.res.writableEnded || this.res.destroyed) {
+        this.handleWriteError(new Error('Socket closed'), 'write');
+        return false;
+      }
+      
+      this.res.write(data);
+      return true;
+    } catch (err) {
+      this.handleWriteError(err, 'write');
+      return false;
+    }
+  }
+
+  /**
+   * Handle write errors (ST-04)
+   */
+  handleWriteError(err, operation) {
+    if (this.isOpen) {
+      this.isOpen = false;
+      console.log(`[SSE-WRITER] [ERROR] ${this.connectionId} ${operation}: ${err.message}`);
+      this.onError(err, operation);
+    }
   }
 
   /**
@@ -38,18 +79,18 @@ export class SSEWriter {
     if (!this.isOpen) return false;
     
     const sse = encodeSSE(envelope);
-    this.res.write(sse);
-    this.eventCount++;
-    this.lastEventId = envelope.event_id;
-    return true;
+    const success = this.safeWrite(sse);
+    
+    if (success) {
+      this.eventCount++;
+      this.lastEventId = envelope.event_id;
+    }
+    
+    return success;
   }
 
   /**
    * Send a domain event
-   * @param {string} entity - Domain entity
-   * @param {string} action - Action performed
-   * @param {Object} payload - Event data
-   * @param {Object} options - Optional fields
    */
   sendDomainEvent(entity, action, payload, options = {}) {
     const envelope = createDomainEvent(entity, action, payload, options);
@@ -66,9 +107,6 @@ export class SSEWriter {
 
   /**
    * Send a control event
-   * @param {string} controlType - open, close, reconnect
-   * @param {Object} payload - Control data
-   * @param {Object} options - Optional fields
    */
   sendControl(controlType, payload = {}, options = {}) {
     const envelope = createControl(controlType, payload, options);
@@ -77,9 +115,6 @@ export class SSEWriter {
 
   /**
    * Send an error event
-   * @param {string} message - Error message
-   * @param {string} code - Error code
-   * @param {Object} options - Optional fields
    */
   sendError(message, code = 'UNKNOWN_ERROR', options = {}) {
     const envelope = createError(message, code, options);
@@ -88,9 +123,6 @@ export class SSEWriter {
 
   /**
    * Send a custom event
-   * @param {string} type - Event type
-   * @param {Object} payload - Event data
-   * @param {Object} options - Optional fields
    */
   send(type, payload = {}, options = {}) {
     const envelope = createEnvelope(type, payload, options);
@@ -99,14 +131,25 @@ export class SSEWriter {
 
   /**
    * Close the SSE connection
-   * @param {string} reason - Disconnect reason
    */
   close(reason = 'stream_ended') {
     if (!this.isOpen) return;
     
-    this.sendControl('close', { reason });
+    // Try to send close event
+    try {
+      this.sendControl('close', { reason });
+    } catch (err) {
+      // Ignore - socket may already be dead
+    }
+    
     this.isOpen = false;
-    this.res.end();
+    
+    try {
+      this.res.end();
+    } catch (err) {
+      // Ignore - socket may already be dead
+    }
+    
     this.onClose(reason);
   }
 
@@ -114,6 +157,10 @@ export class SSEWriter {
    * Check if connection is still open
    */
   get connected() {
+    // Also check underlying socket
+    if (this.isOpen && (this.res.writableEnded || this.res.destroyed)) {
+      this.isOpen = false;
+    }
     return this.isOpen;
   }
 
@@ -122,6 +169,7 @@ export class SSEWriter {
    */
   get stats() {
     return {
+      connectionId: this.connectionId,
       eventCount: this.eventCount,
       lastEventId: this.lastEventId,
       isOpen: this.isOpen,
