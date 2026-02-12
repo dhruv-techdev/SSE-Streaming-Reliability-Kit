@@ -178,7 +178,7 @@ data: {"test":true}
       
       expect(connector.url.href).toBe('http://localhost:3000/stream');
       expect(connector.options.timeout).toBe(10000);
-      expect(connector.options.maxRetries).toBe(5);
+      expect(connector._reconnectManager.policy.config.maxAttempts).toBe(5);
     });
 
     it('should have default options', () => {

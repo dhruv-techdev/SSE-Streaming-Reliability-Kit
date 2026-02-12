@@ -1,6 +1,6 @@
 /**
- * SSE Client Connector (US-07, US-08)
- * Reusable entrypoint with state machine lifecycle management
+ * SSE Client Connector (US-07, US-08, US-09)
+ * With state machine and configurable retry policy
  */
 import http from 'http';
 import https from 'https';
@@ -16,9 +16,11 @@ import {
   ConnectionState,
   TransitionReason,
 } from './state-machine.js';
+import { RetryPolicy, DEFAULT_RETRY_POLICY } from './retry-policy.js';
+import { ReconnectManager, RECONNECTABLE_REASONS } from './reconnect-manager.js';
 
 /**
- * SSE Connector Class with State Machine
+ * SSE Connector Class with State Machine and Retry Policy
  */
 export class SSEConnector {
   /**
@@ -28,11 +30,18 @@ export class SSEConnector {
    */
   constructor(url, options = {}) {
     this.url = new URL(url);
+    
+    // Build retry policy (SSRK-97)
+    const retryPolicyConfig = options.retryPolicy || {
+      baseDelayMs: options.retryInterval || DEFAULT_RETRY_POLICY.baseDelayMs,
+      maxDelayMs: options.maxDelayMs || DEFAULT_RETRY_POLICY.maxDelayMs,
+      maxAttempts: options.maxRetries || DEFAULT_RETRY_POLICY.maxAttempts,
+      jitterPct: options.jitterPct ?? DEFAULT_RETRY_POLICY.jitterPct,
+    };
+
     this.options = {
       // Timeouts
       timeout: options.timeout || Defaults.CLIENT_TIMEOUT_MS,
-      retryInterval: options.retryInterval || Defaults.RETRY_INTERVAL_MS,
-      maxRetries: options.maxRetries || Defaults.MAX_RETRY_ATTEMPTS,
       
       // Auto-reconnect
       autoReconnect: options.autoReconnect !== false,
@@ -46,8 +55,11 @@ export class SSEConnector {
       onError: options.onError || (() => {}),
       onClose: options.onClose || (() => {}),
       
-      // State change callback (SSRK-92)
+      // State change callback
       onStateChange: options.onStateChange || null,
+      
+      // Retry callback (SSRK-102)
+      onRetry: options.onRetry || null,
       
       // Reserved event handlers
       onHeartbeat: options.onHeartbeat || null,
@@ -57,23 +69,30 @@ export class SSEConnector {
       // Validation
       validateEnvelope: options.validateEnvelope !== false,
       
-      // Debug logging (SSRK-95)
+      // Debug logging
       debug: options.debug || false,
     };
 
-    // State machine (SSRK-91)
+    // State machine
     this._stateMachine = new StateMachine({
       debug: this.options.debug,
       onStateChange: (event) => this._handleStateChange(event),
     });
 
+    // Reconnect manager (SSRK-100, 101)
+    this._reconnectManager = new ReconnectManager({
+      retryPolicy: retryPolicyConfig,
+      debug: this.options.debug,
+      onRetry: (info) => this._handleRetryScheduled(info),
+      onReconnect: (info) => this._handleReconnectAttempt(info),
+      onGiveUp: (info) => this._handleGiveUp(info),
+    });
+
     // Connection state
     this.lastEventId = null;
-    this.retryCount = 0;
     this.request = null;
     this.response = null;
     this.timeoutTimer = null;
-    this.retryTimer = null;
     this._stopped = false;
     
     // Stats
@@ -87,7 +106,7 @@ export class SSEConnector {
   }
 
   /**
-   * Handle state change events (SSRK-92)
+   * Handle state change events
    */
   _handleStateChange(event) {
     if (this.options.debug) {
@@ -100,6 +119,57 @@ export class SSEConnector {
   }
 
   /**
+   * Handle retry scheduled (SSRK-102)
+   */
+  _handleRetryScheduled(info) {
+    if (this.options.debug) {
+      console.log(`[CONNECTOR] Retry scheduled: attempt ${info.attempt} in ${info.delayMs}ms`);
+    }
+
+    // Fire onRetry callback (SSRK-102)
+    if (this.options.onRetry) {
+      this.options.onRetry({
+        attempt: info.attempt,
+        delayMs: info.delayMs,
+        reason: info.reason,
+        maxAttempts: info.maxAttempts,
+      });
+    }
+  }
+
+  /**
+   * Handle reconnect attempt
+   */
+  _handleReconnectAttempt(info) {
+    if (this._stopped) return;
+
+    this.stats.reconnectCount++;
+    
+    // Transition: RETRYING → CONNECTING (SSRK-103)
+    this._stateMachine.retrying();
+    this._doConnect();
+  }
+
+  /**
+   * Handle give up (max retries reached)
+   */
+  _handleGiveUp(info) {
+    if (this.options.debug) {
+      console.log(`[CONNECTOR] Giving up after ${info.attempts} attempts`);
+    }
+
+    // Transition to CLOSED (SSRK-103)
+    this._stateMachine.close(TransitionReason.RETRY_EXHAUSTED);
+    
+    this.options.onClose({
+      reason: 'retry_exhausted',
+      attempts: info.attempts,
+      willReconnect: false,
+      state: this._stateMachine.state,
+    });
+  }
+
+  /**
    * Connect to the SSE server
    * @returns {SSEConnector} this
    */
@@ -107,6 +177,7 @@ export class SSEConnector {
     if (this._stopped) {
       this._stopped = false;
       this._stateMachine.reset();
+      this._reconnectManager.reset();
     }
 
     if (this._stateMachine.is(ConnectionState.OPEN) || 
@@ -114,7 +185,7 @@ export class SSEConnector {
       return this;
     }
 
-    // Transition to CONNECTING (SSRK-93)
+    // Transition to CONNECTING
     if (this._stateMachine.is(ConnectionState.IDLE) || 
         this._stateMachine.is(ConnectionState.RETRYING)) {
       this._stateMachine.connect();
@@ -162,12 +233,11 @@ export class SSEConnector {
       this._handleError(new Error('Request timeout'), 'timeout', TransitionReason.CONNECTION_TIMEOUT);
     });
 
-    // Set request timeout
     this.request.setTimeout(this.options.timeout);
   }
 
   /**
-   * Handle HTTP response (SSRK-93)
+   * Handle HTTP response
    */
   _handleResponse(res) {
     if (this._stopped) return;
@@ -181,7 +251,6 @@ export class SSEConnector {
       return;
     }
 
-    // Verify content type
     const contentType = res.headers['content-type'];
     if (!contentType || !contentType.includes('text/event-stream')) {
       this._handleError(
@@ -192,20 +261,21 @@ export class SSEConnector {
       return;
     }
 
-    // Connection established - transition to OPEN (SSRK-93)
+    // Connection successful - reset retry counter
+    this._reconnectManager.reset();
+    
+    // Transition to OPEN
     this._stateMachine.connected();
-    this.retryCount = 0;
     this.stats.connectedAt = Date.now();
     this._resetTimeout();
 
-    // Notify onOpen callback
     this.options.onOpen({
       url: this.url.href,
       lastEventId: this.lastEventId,
       state: this._stateMachine.state,
+      reconnectCount: this.stats.reconnectCount,
     });
 
-    // Handle incoming data
     let buffer = '';
     
     res.on('data', (chunk) => {
@@ -216,7 +286,6 @@ export class SSEConnector {
       
       buffer += chunk.toString();
       
-      // Process complete events (separated by \n\n)
       const parts = buffer.split('\n\n');
       buffer = parts.pop() || '';
       
@@ -229,7 +298,7 @@ export class SSEConnector {
 
     res.on('end', () => {
       if (!this._stopped) {
-        this._handleClose(TransitionReason.SERVER_CLOSE);
+        this._handleDisconnect(TransitionReason.SERVER_CLOSE);
       }
     });
 
@@ -246,20 +315,19 @@ export class SSEConnector {
 
     const parsed = parseSSEChunk(raw);
     
-    // Update last event ID
     if (parsed.id) {
       this.lastEventId = parsed.id;
     }
 
-    // Update retry interval if server suggests one
     if (parsed.retry) {
-      this.options.retryInterval = parsed.retry;
+      // Server suggested retry interval - could update policy
+      // For now, just log it
+      if (this.options.debug) {
+        console.log(`[CONNECTOR] Server suggested retry: ${parsed.retry}ms`);
+      }
     }
 
-    // Parse data field
-    if (!parsed.data) {
-      return;
-    }
+    if (!parsed.data) return;
 
     const { envelope, error } = decodeSSE(parsed.data);
     
@@ -268,7 +336,6 @@ export class SSEConnector {
       return;
     }
 
-    // Validate envelope
     if (this.options.validateEnvelope) {
       const validation = validateEvent(envelope);
       if (!validation.valid) {
@@ -278,8 +345,6 @@ export class SSEConnector {
     }
 
     this.stats.eventsReceived++;
-
-    // Route event by type
     this._routeEvent(envelope);
   }
 
@@ -289,7 +354,6 @@ export class SSEConnector {
   _routeEvent(envelope) {
     const { type } = envelope;
 
-    // System heartbeat
     if (type === ReservedEventTypes.HEARTBEAT) {
       if (this.options.onHeartbeat) {
         this.options.onHeartbeat(envelope);
@@ -297,35 +361,28 @@ export class SSEConnector {
       return;
     }
 
-    // System error
     if (type === ReservedEventTypes.ERROR) {
       if (this.options.onSystemError) {
         this.options.onSystemError(envelope);
       } else {
-        this.options.onError({
-          type: 'system_error',
-          envelope,
-        });
+        this.options.onError({ type: 'system_error', envelope });
       }
       return;
     }
 
-    // Control events
     if (type.startsWith('control.')) {
       if (this.options.onControl) {
         this.options.onControl(envelope);
       }
     }
 
-    // All domain events and control events go to onEvent
     this.options.onEvent(envelope);
   }
 
   /**
-   * Handle parse errors (SSRK-93)
+   * Handle parse errors
    */
   _handleParseError(error, raw) {
-    // Don't transition to ERROR for parse errors, just notify
     this.options.onError({
       type: 'parse_error',
       message: error,
@@ -346,7 +403,7 @@ export class SSEConnector {
   }
 
   /**
-   * Handle connection errors (SSRK-93)
+   * Handle connection errors
    */
   _handleError(err, source, reason) {
     if (this._stopped) return;
@@ -355,7 +412,7 @@ export class SSEConnector {
     this._clearTimeout();
     this._cleanup();
 
-    // Transition to ERROR state (SSRK-93)
+    // Transition to ERROR (SSRK-103)
     this._stateMachine.error(reason, { source, message: err.message });
 
     this.options.onError({
@@ -365,69 +422,56 @@ export class SSEConnector {
       state: this._stateMachine.state,
     });
 
-    if (!this._stopped && this.options.autoReconnect && this.retryCount < this.options.maxRetries) {
-      this._scheduleReconnect();
-    } else {
-      // Transition to CLOSED (SSRK-93)
-      this._stateMachine.close(TransitionReason.RETRY_EXHAUSTED);
-      this.options.onClose({
-        reason: 'error',
-        error: err.message,
-        willReconnect: false,
-        state: this._stateMachine.state,
-      });
-    }
+    this._attemptReconnect(reason);
   }
 
   /**
-   * Handle connection close (SSRK-93)
+   * Handle disconnect (SSRK-100)
    */
-  _handleClose(reason) {
+  _handleDisconnect(reason) {
     if (this._stopped) return;
 
     this.stats.disconnectedAt = Date.now();
     this._clearTimeout();
     this._cleanup();
 
-    // Transition to ERROR then possibly RETRYING (SSRK-93)
+    // Transition to ERROR (SSRK-103)
     this._stateMachine.error(reason);
 
-    if (!this._stopped && this.options.autoReconnect && this.retryCount < this.options.maxRetries) {
-      this.options.onClose({
-        reason,
-        willReconnect: true,
-        retryIn: this.options.retryInterval,
-        state: this._stateMachine.state,
-      });
-      this._scheduleReconnect();
-    } else {
+    this._attemptReconnect(reason);
+  }
+
+  /**
+   * Attempt reconnection (SSRK-100, 101)
+   */
+  _attemptReconnect(reason) {
+    if (this._stopped || !this.options.autoReconnect) {
       this._stateMachine.close(reason);
       this.options.onClose({
         reason,
         willReconnect: false,
         state: this._stateMachine.state,
       });
+      return;
     }
-  }
 
-  /**
-   * Schedule reconnection attempt (SSRK-93)
-   */
-  _scheduleReconnect() {
-    if (this._stopped) return;
-
-    // Transition to RETRYING
-    this._stateMachine.retry();
+    // Check if we should reconnect for this reason (SSRK-100)
+    const willReconnect = this._reconnectManager.scheduleReconnect(reason);
     
-    this.retryCount++;
-    this.stats.reconnectCount++;
-
-    this.retryTimer = setTimeout(() => {
-      if (!this._stopped) {
-        this._stateMachine.retrying(); // Back to CONNECTING
-        this._doConnect();
-      }
-    }, this.options.retryInterval);
+    if (willReconnect) {
+      // Transition to RETRYING (SSRK-103)
+      this._stateMachine.retry();
+      
+      const retryInfo = this._reconnectManager.getRetryInfo();
+      this.options.onClose({
+        reason,
+        willReconnect: true,
+        retryIn: retryInfo.delay,
+        attempt: this._reconnectManager.attempt + 1,
+        state: this._stateMachine.state,
+      });
+    }
+    // If willReconnect is false, onGiveUp or intentional stop will handle it
   }
 
   /**
@@ -468,16 +512,11 @@ export class SSEConnector {
 
   /**
    * Stop and disconnect (SSRK-94)
-   * This prevents any further reconnection attempts
    */
   stop() {
     this._stopped = true;
     this._clearTimeout();
-    
-    if (this.retryTimer) {
-      clearTimeout(this.retryTimer);
-      this.retryTimer = null;
-    }
+    this._reconnectManager.cancel();
 
     if (this.request) {
       this.request.destroy();
@@ -485,14 +524,12 @@ export class SSEConnector {
     }
 
     this._cleanup();
-
-    // Force close regardless of current state (SSRK-94)
     this._stateMachine.forceClose(TransitionReason.USER_STOP);
     this.stats.disconnectedAt = Date.now();
   }
 
   /**
-   * Alias for stop() - disconnect from the server
+   * Alias for stop()
    */
   disconnect() {
     this.stop();
@@ -506,10 +543,24 @@ export class SSEConnector {
   }
 
   /**
-   * Get state machine instance (for advanced usage)
+   * Get state machine instance
    */
   getStateMachine() {
     return this._stateMachine;
+  }
+
+  /**
+   * Get reconnect manager instance
+   */
+  getReconnectManager() {
+    return this._reconnectManager;
+  }
+
+  /**
+   * Get retry policy
+   */
+  getRetryPolicy() {
+    return this._reconnectManager.policy;
   }
 
   /**
@@ -520,8 +571,9 @@ export class SSEConnector {
       ...this.stats,
       state: this._stateMachine.state,
       lastEventId: this.lastEventId,
-      retryCount: this.retryCount,
+      retryAttempt: this._reconnectManager.attempt,
       stateMachine: this._stateMachine.getStats(),
+      reconnect: this._reconnectManager.getStats(),
     };
   }
 
@@ -540,19 +592,17 @@ export class SSEConnector {
   }
 
   /**
-   * Enable/disable debug logging (SSRK-95)
+   * Enable/disable debug logging
    */
   setDebug(enabled) {
     this.options.debug = enabled;
     this._stateMachine.setDebug(enabled);
+    this._reconnectManager.setDebug(enabled);
   }
 }
 
 /**
  * Factory function to create and connect
- * @param {string} url - SSE endpoint URL
- * @param {Object} options - Configuration options
- * @returns {SSEConnector}
  */
 export function connectSSE(url, options = {}) {
   const connector = new SSEConnector(url, options);
@@ -560,7 +610,9 @@ export function connectSSE(url, options = {}) {
   return connector;
 }
 
-// Re-export state machine types
+// Re-export types
 export { ConnectionState, TransitionReason } from './state-machine.js';
+export { RetryPolicy, RetryPolicies, DEFAULT_RETRY_POLICY } from './retry-policy.js';
+export { ReconnectManager, RECONNECTABLE_REASONS } from './reconnect-manager.js';
 
 export default SSEConnector;
