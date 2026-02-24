@@ -1,6 +1,6 @@
 /**
- * SSE Client Demo (US-09)
- * Demonstrates configurable retry policy
+ * SSE Client Demo (US-10)
+ * Demonstrates retry limits and give-up behavior
  */
 import { connectSSE, ConnectionState, RetryPolicies } from './sse-connector.js';
 
@@ -19,6 +19,8 @@ const stats = {
   errors: 0,
   retries: [],
   stateChanges: [],
+  gaveUp: false,
+  giveUpInfo: null,
   startTime: Date.now(),
 };
 
@@ -28,30 +30,34 @@ function log(tag, message, data = null) {
   console.log(`[${ts}] [${tag.padEnd(10)}] ${message}${dataStr}`);
 }
 
-// Create connector with retry policy (SSRK-97)
+// Create connector with retry limits (US-10)
 const connector = connectSSE(url, {
   debug,
   
-  // Retry policy configuration (SSRK-97)
+  // Retry policy with limits (SSRK-106, SSRK-107)
   retryPolicy: {
     baseDelayMs: 1000,
     maxDelayMs: 10000,
-    maxAttempts: 5,
+    maxAttempts: 5,           // Stop after 5 attempts (SSRK-106)
+    maxRetryTimeMs: 60000,    // Or after 60 seconds total (SSRK-107)
     jitterPct: 0.2,
   },
-  
-  // Or use a preset:
-  // retryPolicy: RetryPolicies.aggressive().getConfig(),
   
   onStateChange: ({ previous, current, reason }) => {
     stats.stateChanges.push({ from: previous, to: current, reason });
     log('STATE', `${previous} → ${current}`, { reason });
   },
 
-  // Retry callback (SSRK-102)
-  onRetry: ({ attempt, delayMs, reason, maxAttempts }) => {
-    stats.retries.push({ attempt, delayMs, reason });
-    log('RETRY', `Attempt ${attempt}/${maxAttempts} scheduled`, { delayMs, reason });
+  onRetry: ({ attempt, delayMs, reason, elapsedMs, maxAttempts }) => {
+    stats.retries.push({ attempt, delayMs, reason, elapsedMs });
+    log('RETRY', `Attempt ${attempt}/${maxAttempts} in ${delayMs}ms`, { reason, elapsedMs });
+  },
+
+  // Give up callback (SSRK-109)
+  onGiveUp: ({ reason, attempts, elapsedMs, lastError }) => {
+    stats.gaveUp = true;
+    stats.giveUpInfo = { reason, attempts, elapsedMs, lastError };
+    log('GIVE_UP', `Stopped retrying: ${reason}`, { attempts, elapsedMs });
   },
 
   onOpen: ({ url, lastEventId, state, reconnectCount }) => {
@@ -85,11 +91,12 @@ const connector = connectSSE(url, {
     log('ERROR', `[${error.type}] ${error.message}`, { source: error.source });
   },
 
-  onClose: ({ reason, willReconnect, retryIn, attempt, state }) => {
+  onClose: ({ reason, willReconnect, retryIn, attempt, elapsedMs, state }) => {
     log('CLOSE', `Connection closed: ${reason}`, { 
       willReconnect, 
       retryIn, 
       attempt,
+      elapsedMs,
       state,
     });
   },
@@ -126,28 +133,29 @@ function printSummary() {
 ║  Errors:            ${String(stats.errors).padEnd(36)}║
 ║  Reconnect Count:   ${String(connectorStats.reconnectCount).padEnd(36)}║
 ║  Retry Attempts:    ${String(stats.retries.length).padEnd(36)}║
+║  Gave Up:           ${String(stats.gaveUp ? 'YES' : 'NO').padEnd(36)}║
 ╠═══════════════════════════════════════════════════════════╣
-║  RETRY POLICY:                                             ║
+║  RETRY LIMITS:                                             ║
+║    Max Attempts:    ${String(policy.maxAttempts || 'unlimited').padEnd(36)}║
+║    Max Time:        ${String(policy.maxRetryTimeMs ? policy.maxRetryTimeMs + 'ms' : 'unlimited').padEnd(36)}║
 ║    Base Delay:      ${String(policy.baseDelayMs + 'ms').padEnd(36)}║
-║    Max Delay:       ${String(policy.maxDelayMs + 'ms').padEnd(36)}║
-║    Max Attempts:    ${String(policy.maxAttempts).padEnd(36)}║
-║    Jitter:          ${String((policy.jitterPct * 100) + '%').padEnd(36)}║
-╠═══════════════════════════════════════════════════════════╣
+║    Max Delay:       ${String(policy.maxDelayMs + 'ms').padEnd(36)}║`);
+
+  if (stats.gaveUp && stats.giveUpInfo) {
+    console.log(`╠═══════════════════════════════════════════════════════════╣
+║  GIVE UP INFO:                                             ║
+║    Reason:          ${String(stats.giveUpInfo.reason).padEnd(36)}║
+║    Total Attempts:  ${String(stats.giveUpInfo.attempts).padEnd(36)}║
+║    Elapsed Time:    ${String(stats.giveUpInfo.elapsedMs + 'ms').padEnd(36)}║`);
+  }
+
+  console.log(`╠═══════════════════════════════════════════════════════════╣
 ║  STATE HISTORY:                                            ║`);
   
   stats.stateChanges.slice(-5).forEach(({ from, to, reason }) => {
     const line = `║    ${from} → ${to} (${reason})`;
     console.log(line.padEnd(60) + '║');
   });
-
-  if (stats.retries.length > 0) {
-    console.log(`╠═══════════════════════════════════════════════════════════╣
-║  RETRY HISTORY:                                            ║`);
-    stats.retries.slice(-3).forEach(({ attempt, delayMs, reason }) => {
-      const line = `║    Attempt ${attempt}: ${delayMs}ms (${reason})`;
-      console.log(line.padEnd(60) + '║');
-    });
-  }
   
   console.log(`╠═══════════════════════════════════════════════════════════╣
 ║  RESULT: ${stats.eventsReceived > 0 ? 'PASS ✓                                          ' : 'FAIL ✗                                          '}║
