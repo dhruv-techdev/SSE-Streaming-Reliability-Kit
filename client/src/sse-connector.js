@@ -1,6 +1,6 @@
 /**
- * SSE Client Connector (US-07, US-08, US-09)
- * With state machine and configurable retry policy
+ * SSE Client Connector (US-07, US-08, US-09, US-10)
+ * With state machine, retry policy, and circuit breaker
  */
 import http from 'http';
 import https from 'https';
@@ -17,10 +17,10 @@ import {
   TransitionReason,
 } from './state-machine.js';
 import { RetryPolicy, DEFAULT_RETRY_POLICY } from './retry-policy.js';
-import { ReconnectManager, RECONNECTABLE_REASONS } from './reconnect-manager.js';
+import { ReconnectManager, RECONNECTABLE_REASONS, GiveUpReason } from './reconnect-manager.js';
 
 /**
- * SSE Connector Class with State Machine and Retry Policy
+ * SSE Connector Class
  */
 export class SSEConnector {
   /**
@@ -31,11 +31,12 @@ export class SSEConnector {
   constructor(url, options = {}) {
     this.url = new URL(url);
     
-    // Build retry policy (SSRK-97)
+    // Build retry policy
     const retryPolicyConfig = options.retryPolicy || {
       baseDelayMs: options.retryInterval || DEFAULT_RETRY_POLICY.baseDelayMs,
       maxDelayMs: options.maxDelayMs || DEFAULT_RETRY_POLICY.maxDelayMs,
-      maxAttempts: options.maxRetries || DEFAULT_RETRY_POLICY.maxAttempts,
+      maxAttempts: options.maxRetries ?? DEFAULT_RETRY_POLICY.maxAttempts,
+      maxRetryTimeMs: options.maxRetryTimeMs ?? DEFAULT_RETRY_POLICY.maxRetryTimeMs,
       jitterPct: options.jitterPct ?? DEFAULT_RETRY_POLICY.jitterPct,
     };
 
@@ -58,8 +59,11 @@ export class SSEConnector {
       // State change callback
       onStateChange: options.onStateChange || null,
       
-      // Retry callback (SSRK-102)
+      // Retry callback
       onRetry: options.onRetry || null,
+      
+      // Give up callback (SSRK-109)
+      onGiveUp: options.onGiveUp || null,
       
       // Reserved event handlers
       onHeartbeat: options.onHeartbeat || null,
@@ -79,7 +83,7 @@ export class SSEConnector {
       onStateChange: (event) => this._handleStateChange(event),
     });
 
-    // Reconnect manager (SSRK-100, 101)
+    // Reconnect manager
     this._reconnectManager = new ReconnectManager({
       retryPolicy: retryPolicyConfig,
       debug: this.options.debug,
@@ -119,20 +123,22 @@ export class SSEConnector {
   }
 
   /**
-   * Handle retry scheduled (SSRK-102)
+   * Handle retry scheduled
    */
   _handleRetryScheduled(info) {
     if (this.options.debug) {
       console.log(`[CONNECTOR] Retry scheduled: attempt ${info.attempt} in ${info.delayMs}ms`);
     }
 
-    // Fire onRetry callback (SSRK-102)
     if (this.options.onRetry) {
       this.options.onRetry({
         attempt: info.attempt,
         delayMs: info.delayMs,
         reason: info.reason,
+        error: info.error,
+        elapsedMs: info.elapsedMs,
         maxAttempts: info.maxAttempts,
+        maxRetryTimeMs: info.maxRetryTimeMs,
       });
     }
   }
@@ -145,25 +151,37 @@ export class SSEConnector {
 
     this.stats.reconnectCount++;
     
-    // Transition: RETRYING → CONNECTING (SSRK-103)
+    // Transition: RETRYING → CONNECTING
     this._stateMachine.retrying();
     this._doConnect();
   }
 
   /**
-   * Handle give up (max retries reached)
+   * Handle give up (SSRK-108, SSRK-109)
    */
   _handleGiveUp(info) {
     if (this.options.debug) {
-      console.log(`[CONNECTOR] Giving up after ${info.attempts} attempts`);
+      console.log(`[CONNECTOR] Gave up: ${info.reason} after ${info.attempts} attempts (${info.elapsedMs}ms)`);
     }
 
-    // Transition to CLOSED (SSRK-103)
+    // Transition to CLOSED (SSRK-108)
     this._stateMachine.close(TransitionReason.RETRY_EXHAUSTED);
-    
+
+    // Fire onGiveUp callback (SSRK-109)
+    if (this.options.onGiveUp) {
+      this.options.onGiveUp({
+        reason: info.reason,
+        attempts: info.attempts,
+        elapsedMs: info.elapsedMs,
+        lastError: info.lastError,
+      });
+    }
+
+    // Also fire onClose for consistency
     this.options.onClose({
-      reason: 'retry_exhausted',
+      reason: info.reason,
       attempts: info.attempts,
+      elapsedMs: info.elapsedMs,
       willReconnect: false,
       state: this._stateMachine.state,
     });
@@ -174,10 +192,11 @@ export class SSEConnector {
    * @returns {SSEConnector} this
    */
   connect() {
-    if (this._stopped) {
+    // Handle restart after give-up (SSRK-111)
+    if (this._stopped || this._reconnectManager.hasGivenUp) {
       this._stopped = false;
       this._stateMachine.reset();
-      this._reconnectManager.reset();
+      this._reconnectManager.restart();
     }
 
     if (this._stateMachine.is(ConnectionState.OPEN) || 
@@ -185,7 +204,6 @@ export class SSEConnector {
       return this;
     }
 
-    // Transition to CONNECTING
     if (this._stateMachine.is(ConnectionState.IDLE) || 
         this._stateMachine.is(ConnectionState.RETRYING)) {
       this._stateMachine.connect();
@@ -193,6 +211,17 @@ export class SSEConnector {
     
     this._doConnect();
     return this;
+  }
+
+  /**
+   * Restart after give-up (SSRK-111)
+   * Alias for connect() with explicit reset
+   */
+  restart() {
+    if (this.options.debug) {
+      console.log('[CONNECTOR] Manual restart requested');
+    }
+    return this.connect();
   }
 
   /**
@@ -215,7 +244,6 @@ export class SSEConnector {
       },
     };
 
-    // Add Last-Event-ID for resume
     if (this.lastEventId) {
       requestOptions.headers['Last-Event-ID'] = this.lastEventId;
     }
@@ -261,10 +289,9 @@ export class SSEConnector {
       return;
     }
 
-    // Connection successful - reset retry counter
+    // Connection successful - reset retry state (SSRK-105)
     this._reconnectManager.reset();
     
-    // Transition to OPEN
     this._stateMachine.connected();
     this.stats.connectedAt = Date.now();
     this._resetTimeout();
@@ -320,8 +347,6 @@ export class SSEConnector {
     }
 
     if (parsed.retry) {
-      // Server suggested retry interval - could update policy
-      // For now, just log it
       if (this.options.debug) {
         console.log(`[CONNECTOR] Server suggested retry: ${parsed.retry}ms`);
       }
@@ -412,7 +437,6 @@ export class SSEConnector {
     this._clearTimeout();
     this._cleanup();
 
-    // Transition to ERROR (SSRK-103)
     this._stateMachine.error(reason, { source, message: err.message });
 
     this.options.onError({
@@ -422,11 +446,11 @@ export class SSEConnector {
       state: this._stateMachine.state,
     });
 
-    this._attemptReconnect(reason);
+    this._attemptReconnect(reason, err);
   }
 
   /**
-   * Handle disconnect (SSRK-100)
+   * Handle disconnect
    */
   _handleDisconnect(reason) {
     if (this._stopped) return;
@@ -435,16 +459,15 @@ export class SSEConnector {
     this._clearTimeout();
     this._cleanup();
 
-    // Transition to ERROR (SSRK-103)
     this._stateMachine.error(reason);
 
     this._attemptReconnect(reason);
   }
 
   /**
-   * Attempt reconnection (SSRK-100, 101)
+   * Attempt reconnection
    */
-  _attemptReconnect(reason) {
+  _attemptReconnect(reason, error = null) {
     if (this._stopped || !this.options.autoReconnect) {
       this._stateMachine.close(reason);
       this.options.onClose({
@@ -455,11 +478,9 @@ export class SSEConnector {
       return;
     }
 
-    // Check if we should reconnect for this reason (SSRK-100)
-    const willReconnect = this._reconnectManager.scheduleReconnect(reason);
+    const willReconnect = this._reconnectManager.scheduleReconnect(reason, error);
     
     if (willReconnect) {
-      // Transition to RETRYING (SSRK-103)
       this._stateMachine.retry();
       
       const retryInfo = this._reconnectManager.getRetryInfo();
@@ -468,10 +489,11 @@ export class SSEConnector {
         willReconnect: true,
         retryIn: retryInfo.delay,
         attempt: this._reconnectManager.attempt + 1,
+        elapsedMs: this._reconnectManager.getElapsedTime(),
         state: this._stateMachine.state,
       });
     }
-    // If willReconnect is false, onGiveUp or intentional stop will handle it
+    // If willReconnect is false, _handleGiveUp already fired
   }
 
   /**
@@ -501,7 +523,7 @@ export class SSEConnector {
   }
 
   /**
-   * Cleanup connection resources
+   * Cleanup connection resources (SSRK-110)
    */
   _cleanup() {
     if (this.response) {
@@ -511,12 +533,13 @@ export class SSEConnector {
   }
 
   /**
-   * Stop and disconnect (SSRK-94)
+   * Stop and disconnect (SSRK-110)
+   * Clears all timers and prevents further reconnects
    */
   stop() {
     this._stopped = true;
     this._clearTimeout();
-    this._reconnectManager.cancel();
+    this._reconnectManager.stop();
 
     if (this.request) {
       this.request.destroy();
@@ -564,6 +587,13 @@ export class SSEConnector {
   }
 
   /**
+   * Check if given up (SSRK-108)
+   */
+  get hasGivenUp() {
+    return this._reconnectManager.hasGivenUp;
+  }
+
+  /**
    * Get connection statistics
    */
   getStats() {
@@ -572,6 +602,8 @@ export class SSEConnector {
       state: this._stateMachine.state,
       lastEventId: this.lastEventId,
       retryAttempt: this._reconnectManager.attempt,
+      hasGivenUp: this._reconnectManager.hasGivenUp,
+      giveUpReason: this._reconnectManager.giveUpReason,
       stateMachine: this._stateMachine.getStats(),
       reconnect: this._reconnectManager.getStats(),
     };
@@ -613,6 +645,6 @@ export function connectSSE(url, options = {}) {
 // Re-export types
 export { ConnectionState, TransitionReason } from './state-machine.js';
 export { RetryPolicy, RetryPolicies, DEFAULT_RETRY_POLICY } from './retry-policy.js';
-export { ReconnectManager, RECONNECTABLE_REASONS } from './reconnect-manager.js';
+export { ReconnectManager, RECONNECTABLE_REASONS, GiveUpReason } from './reconnect-manager.js';
 
 export default SSEConnector;
