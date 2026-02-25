@@ -1,8 +1,8 @@
 /**
- * SSE Client Demo (US-13)
- * Shows Last-Event-ID resume
+ * SSE Client Demo (US-15)
+ * Shows cannot-resume handling
  */
-import { connectSSE, ConnectionState } from './sse-connector.js';
+import { connectSSE, ConnectionState, CannotResumeFallback } from './sse-connector.js';
 
 const host = process.env.HOST || 'localhost';
 const port = process.env.PORT || 3000;
@@ -18,6 +18,7 @@ const stats = {
   errors: 0,
   livenessFailures: 0,
   resumeAttempts: 0,
+  cannotResumeCount: 0,
   retries: [],
   stateChanges: [],
   gaveUp: false,
@@ -28,7 +29,7 @@ const stats = {
 function log(tag, message, data = null) {
   const ts = new Date().toISOString().split('T')[1].slice(0, -1);
   const dataStr = data ? ` ${JSON.stringify(data)}` : '';
-  console.log(`[${ts}] [${tag.padEnd(12)}] ${message}${dataStr}`);
+  console.log(`[${ts}] [${tag.padEnd(14)}] ${message}${dataStr}`);
 }
 
 const connector = connectSSE(url, {
@@ -47,9 +48,12 @@ const connector = connectSSE(url, {
   livenessTimeoutMs: 45000,
   livenessGracePeriodMs: 5000,
   
-  // Last-Event-ID persistence (SSRK-129)
-  persistLastEventId: false, // Use in-memory for demo
+  // Last-Event-ID persistence
+  persistLastEventId: false,
   streamId: 'demo-stream',
+  
+  // Cannot-resume fallback behavior (SSRK-143)
+  cannotResumeFallback: CannotResumeFallback.START_FRESH,
   
   onStateChange: ({ previous, current, reason }) => {
     stats.stateChanges.push({ from: previous, to: current, reason });
@@ -69,19 +73,24 @@ const connector = connectSSE(url, {
 
   onLivenessFailure: ({ lastHeartbeatAt, elapsedMs, timeoutMs }) => {
     stats.livenessFailures++;
-    log('LIVENESS', `❌ Heartbeat missed!`, { 
-      elapsedMs,
-      timeoutMs,
-    });
+    log('LIVENESS', `❌ Heartbeat missed!`, { elapsedMs, timeoutMs });
   },
 
-  // Resume attempt callback (SSRK-132)
   onResumeAttempt: ({ lastEventId, attempt, reconnectCount }) => {
     stats.resumeAttempts++;
     log('RESUME', `��� Attempting resume`, {
       lastEventId: lastEventId.slice(0, 20) + '...',
       attempt,
       reconnectCount,
+    });
+  },
+
+  // Cannot resume callback (SSRK-142)
+  onCannotResume: ({ lastEventId, reason, serverSuggestedAction }) => {
+    stats.cannotResumeCount++;
+    log('CANNOT_RESUME', `⚠️ Cannot resume from ${lastEventId}`, {
+      reason,
+      action: serverSuggestedAction,
     });
   },
 
@@ -136,9 +145,8 @@ const connector = connectSSE(url, {
 });
 
 log('CONNECT', `Connecting to ${url}...`);
-log('CONFIG', 'Last-Event-ID resume enabled', {
+log('CONFIG', 'Cannot-resume fallback: START_FRESH', {
   streamId: 'demo-stream',
-  persistLastEventId: false,
 });
 
 setTimeout(() => {
@@ -166,10 +174,10 @@ function printSummary() {
 ║  Errors:            ${String(stats.errors).padEnd(36)}║
 ║  Reconnect Count:   ${String(connectorStats.reconnectCount).padEnd(36)}║
 ╠═══════════════════════════════════════════════════════════╣
-║  LAST-EVENT-ID RESUME:                                     ║
-║    Current ID:      ${String(connector.lastEventId ? connector.lastEventId.slice(0, 20) + '...' : 'none').padEnd(36)}║
+║  RESUME & CANNOT-RESUME:                                   ║
 ║    Resume Attempts: ${String(connectorStats.resumeAttempts).padEnd(36)}║
-║    Has Resume Pt:   ${String(connector.getEventIdStore().hasResumePoint()).padEnd(36)}║
+║    Cannot Resume:   ${String(connectorStats.cannotResumeCount).padEnd(36)}║
+║    Last Event ID:   ${String(connector.lastEventId ? connector.lastEventId.slice(0, 20) + '...' : 'none').padEnd(36)}║
 ╠═══════════════════════════════════════════════════════════╣
 ║  LIVENESS DETECTION:                                       ║
 ║    HB Received:     ${String(livenessStats.heartbeatsReceived).padEnd(36)}║

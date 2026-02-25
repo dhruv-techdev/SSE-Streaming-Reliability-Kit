@@ -1,6 +1,7 @@
 /**
- * SSE Client Connector (US-07 through US-13)
- * With state machine, retry policy, liveness detection, and Last-Event-ID resume
+ * SSE Client Connector (US-07 through US-15)
+ * With state machine, retry policy, liveness detection, Last-Event-ID resume,
+ * and cannot-resume fallback handling
  */
 import http from 'http';
 import https from 'https';
@@ -11,6 +12,7 @@ import {
   Defaults,
   ReservedEventTypes,
   DisconnectReason,
+  CannotResumeReason,
 } from '../../shared/src/index.js';
 import {
   StateMachine,
@@ -21,6 +23,18 @@ import { RetryPolicy, DEFAULT_RETRY_POLICY } from './retry-policy.js';
 import { ReconnectManager, RECONNECTABLE_REASONS, GiveUpReason } from './reconnect-manager.js';
 import { LivenessMonitor, createLivenessMonitor } from './liveness-monitor.js';
 import { EventIdStore, createEventIdStore, MemoryStorage } from './event-id-store.js';
+
+/**
+ * Fallback behavior options (SSRK-143)
+ */
+export const CannotResumeFallback = {
+  // Reconnect without Last-Event-ID (fresh stream)
+  START_FRESH: 'start_fresh',
+  // Close connection and don't reconnect
+  CLOSE: 'close',
+  // Let the application decide via callback
+  CALLBACK: 'callback',
+};
 
 /**
  * SSE Connector Class
@@ -52,10 +66,13 @@ export class SSEConnector {
       livenessGracePeriodMs: options.livenessGracePeriodMs || Defaults.LIVENESS_GRACE_PERIOD_MS,
       enableLivenessCheck: options.enableLivenessCheck !== false,
       
-      // Last-Event-ID persistence (SSRK-129)
+      // Last-Event-ID persistence
       persistLastEventId: options.persistLastEventId || false,
       eventIdStorage: options.eventIdStorage || null,
       streamId: options.streamId || 'default',
+      
+      // Cannot-resume fallback behavior (SSRK-143)
+      cannotResumeFallback: options.cannotResumeFallback || CannotResumeFallback.START_FRESH,
       
       // Auto-reconnect
       autoReconnect: options.autoReconnect !== false,
@@ -81,8 +98,11 @@ export class SSEConnector {
       // Liveness failure callback
       onLivenessFailure: options.onLivenessFailure || null,
       
-      // Resume attempt callback (SSRK-132)
+      // Resume attempt callback
       onResumeAttempt: options.onResumeAttempt || null,
+      
+      // Cannot resume callback (SSRK-142)
+      onCannotResume: options.onCannotResume || null,
       
       // Reserved event handlers
       onHeartbeat: options.onHeartbeat || null,
@@ -119,7 +139,7 @@ export class SSEConnector {
       onLivenessFailure: (info) => this._handleLivenessFailure(info),
     });
 
-    // Event ID store for Last-Event-ID tracking (SSRK-128, SSRK-129)
+    // Event ID store for Last-Event-ID tracking
     this._eventIdStore = createEventIdStore({
       streamId: this.options.streamId,
       storage: this.options.eventIdStorage || new MemoryStorage(),
@@ -132,8 +152,9 @@ export class SSEConnector {
     this.response = null;
     this.timeoutTimer = null;
     this._stopped = false;
+    this._startFreshOnNextConnect = false;
     
-    // Stats
+    // Stats (SSRK-144)
     this.stats = {
       eventsReceived: 0,
       bytesReceived: 0,
@@ -142,11 +163,12 @@ export class SSEConnector {
       reconnectCount: 0,
       livenessFailures: 0,
       resumeAttempts: 0,
+      cannotResumeCount: 0,
     };
   }
 
   /**
-   * Get current lastEventId (SSRK-128)
+   * Get current lastEventId
    */
   get lastEventId() {
     return this._eventIdStore.get();
@@ -259,6 +281,50 @@ export class SSEConnector {
   }
 
   /**
+   * Handle cannot-resume signal from server (SSRK-142)
+   */
+  _handleCannotResume(envelope) {
+    this.stats.cannotResumeCount++;
+    
+    const { code, reason, requestedId, action } = envelope.payload;
+    
+    if (this.options.debug) {
+      console.log(`[CONNECTOR] Cannot resume: ${code} - ${reason}`);
+    }
+
+    // Handle fallback behavior before callback so callback sees updated state (SSRK-143)
+    const fallback = this.options.cannotResumeFallback;
+
+    if (fallback === CannotResumeFallback.START_FRESH) {
+      // Clear lastEventId before callback so callback observes cleared state
+      this._eventIdStore.clear();
+
+      if (this.options.debug) {
+        console.log(`[CONNECTOR] Fallback: start_fresh - cleared lastEventId`);
+      }
+    }
+
+    // Fire callback (SSRK-142)
+    if (this.options.onCannotResume) {
+      this.options.onCannotResume({
+        lastEventId: requestedId,
+        reason: code || reason,
+        serverSuggestedAction: action,
+        payload: envelope.payload,
+      });
+    }
+
+    if (fallback === CannotResumeFallback.CLOSE) {
+      // Close connection
+      if (this.options.debug) {
+        console.log(`[CONNECTOR] Fallback: close - stopping connection`);
+      }
+      this.stop();
+    }
+    // CALLBACK fallback - let the onCannotResume handler decide
+  }
+
+  /**
    * Connect to the SSE server
    * @returns {SSEConnector} this
    */
@@ -268,7 +334,6 @@ export class SSEConnector {
       this._stateMachine.reset();
       this._reconnectManager.restart();
       this._livenessMonitor.reset();
-      // Note: Do NOT clear lastEventId on restart - we want to resume (SSRK-128)
     }
 
     if (this._stateMachine.is(ConnectionState.OPEN) || 
@@ -296,6 +361,17 @@ export class SSEConnector {
   }
 
   /**
+   * Start fresh - clear lastEventId and connect (SSRK-143)
+   */
+  startFresh() {
+    if (this.options.debug) {
+      console.log('[CONNECTOR] Starting fresh (clearing lastEventId)');
+    }
+    this._eventIdStore.clear();
+    return this.connect();
+  }
+
+  /**
    * Internal connect logic
    */
   _doConnect() {
@@ -315,8 +391,11 @@ export class SSEConnector {
       },
     };
 
-    // Attach Last-Event-ID header on connect/reconnect (SSRK-130)
-    const lastEventId = this._eventIdStore.get();
+    // Attach Last-Event-ID header on connect/reconnect
+    // Skip if _startFreshOnNextConnect is set (SSRK-143)
+    const lastEventId = this._startFreshOnNextConnect ? null : this._eventIdStore.get();
+    this._startFreshOnNextConnect = false;
+    
     if (lastEventId) {
       requestOptions.headers['Last-Event-ID'] = lastEventId;
       this.stats.resumeAttempts++;
@@ -325,7 +404,7 @@ export class SSEConnector {
         console.log(`[CONNECTOR] Attaching Last-Event-ID: ${lastEventId}`);
       }
       
-      // Fire resume attempt callback (SSRK-132)
+      // Fire resume attempt callback
       if (this.options.onResumeAttempt) {
         this.options.onResumeAttempt({
           lastEventId,
@@ -435,8 +514,7 @@ export class SSEConnector {
 
     const parsed = parseSSEChunk(raw);
     
-    // Update lastEventId from SSE id field (SSRK-128)
-    // This is the raw SSE id, envelope event_id is used as backup
+    // Update lastEventId from SSE id field
     if (parsed.id) {
       this._eventIdStore.set(parsed.id);
     }
@@ -469,8 +547,7 @@ export class SSEConnector {
     // Record event for liveness
     this._livenessMonitor.recordEvent();
     
-    // Update lastEventId from envelope (SSRK-128)
-    // Skip heartbeats - they don't count as resume points
+    // Update lastEventId from envelope
     this._eventIdStore.updateFromEvent(envelope);
     
     this._routeEvent(envelope);
@@ -497,6 +574,16 @@ export class SSEConnector {
         this.options.onSystemError(envelope);
       } else {
         this.options.onError({ type: 'system_error', envelope });
+      }
+      return;
+    }
+
+    // Handle cannot_resume control event (SSRK-142)
+    if (type === 'control.cannot_resume') {
+      this._handleCannotResume(envelope);
+      // Still pass to onControl if set
+      if (this.options.onControl) {
+        this.options.onControl(envelope);
       }
       return;
     }
@@ -601,7 +688,7 @@ export class SSEConnector {
         attempt: this._reconnectManager.attempt + 1,
         elapsedMs: this._reconnectManager.getElapsedTime(),
         state: this._stateMachine.state,
-        lastEventId: this._eventIdStore.get(), // Include for debugging
+        lastEventId: this._eventIdStore.get(),
       });
     }
   }
@@ -643,8 +730,7 @@ export class SSEConnector {
   }
 
   /**
-   * Stop and disconnect (SSRK-131)
-   * Disables resume flow - intentional shutdown
+   * Stop and disconnect
    */
   stop() {
     this._stopped = true;
@@ -660,15 +746,10 @@ export class SSEConnector {
     this._cleanup();
     this._stateMachine.forceClose(TransitionReason.USER_STOP);
     this.stats.disconnectedAt = Date.now();
-    
-    // Note: We do NOT clear lastEventId on stop() (SSRK-131)
-    // This allows the user to call connect() later and resume
-    // To truly reset, user should call clearLastEventId()
   }
 
   /**
    * Clear stored lastEventId
-   * Use this when you want to start fresh without resume
    */
   clearLastEventId() {
     this._eventIdStore.clear();
@@ -788,5 +869,6 @@ export { RetryPolicy, RetryPolicies, DEFAULT_RETRY_POLICY } from './retry-policy
 export { ReconnectManager, RECONNECTABLE_REASONS, GiveUpReason } from './reconnect-manager.js';
 export { LivenessMonitor, createLivenessMonitor } from './liveness-monitor.js';
 export { EventIdStore, createEventIdStore, MemoryStorage, FileStorage, LocalStorageAdapter } from './event-id-store.js';
+export { CannotResumeFallback };
 
 export default SSEConnector;

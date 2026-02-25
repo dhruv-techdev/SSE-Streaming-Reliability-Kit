@@ -13,6 +13,7 @@ export {
   ConfigKeys,
   SSEHeaders,
   DisconnectReason,
+  CannotResumeReason,
   ClientState,
   ServerStreamState,
 } from './constants.js';

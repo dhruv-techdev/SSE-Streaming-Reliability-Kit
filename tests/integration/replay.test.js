@@ -154,7 +154,7 @@ describe('Server Replay Integration', () => {
     }
   });
 
-  it('should send control.reconnect when event ID not found (SSRK-136)', async () => {
+  it('should send control.cannot_resume when event ID not found (SSRK-136)', async () => {
     // Connect with non-existent Last-Event-ID
     const events = await collectEvents({
       lastEventId: 'non-existent-event-id-12345',
@@ -163,10 +163,10 @@ describe('Server Replay Integration', () => {
       includeControl: true,
     });
 
-    const reconnectControl = events.find(e => e.type === 'control.reconnect');
+    const cannotResumeControl = events.find(e => e.type === 'control.cannot_resume');
 
-    expect(reconnectControl).toBeDefined();
-    expect(reconnectControl.payload.reason).toBe('events_expired');
+    expect(cannotResumeControl).toBeDefined();
+    expect(cannotResumeControl.payload.reason).toBe('events_expired');
   });
 
   it('should truncate replay when exceeding MAX_REPLAY_BATCH (SSRK-138)', { timeout: 10000 }, async () => {
