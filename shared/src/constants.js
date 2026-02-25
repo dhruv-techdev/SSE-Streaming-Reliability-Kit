@@ -1,15 +1,24 @@
 /**
- * SSE Protocol Constants (SSRK-114)
+ * SSE Protocol Constants (SSRK-114, SSRK-121)
  */
 
 // Default configuration values
 export const Defaults = {
-  // Heartbeat interval - keep connection alive (SSRK-114)
+  // Heartbeat interval - keep connection alive
   // Safe default for most proxies (NGINX default timeout is 60s)
   HEARTBEAT_INTERVAL_MS: 30000,
   
   // Client timeout - should be > heartbeat interval
   CLIENT_TIMEOUT_MS: 45000,
+  
+  // Liveness timeout - detect missed heartbeats (SSRK-121)
+  // Should be slightly > heartbeat interval to allow for network jitter
+  // Default: heartbeat interval + 15 second grace period
+  LIVENESS_TIMEOUT_MS: 45000,
+  
+  // Grace period before starting liveness checks (SSRK-124)
+  // Prevents false positives on startup
+  LIVENESS_GRACE_PERIOD_MS: 5000,
   
   // Client retry interval suggestion
   RETRY_INTERVAL_MS: 3000,
@@ -24,17 +33,18 @@ export const Defaults = {
 // Environment variable names for configuration
 export const ConfigKeys = {
   HEARTBEAT_INTERVAL_MS: 'SSE_HEARTBEAT_INTERVAL',
+  LIVENESS_TIMEOUT_MS: 'SSE_LIVENESS_TIMEOUT',
   CLIENT_TIMEOUT_MS: 'SSE_CLIENT_TIMEOUT',
   RETRY_INTERVAL_MS: 'SSE_RETRY_TIMEOUT',
   MAX_CONNECTIONS: 'MAX_CONNECTIONS',
 };
 
-// Required response headers for SSE (SSRK-117)
+// Required response headers for SSE
 export const SSEHeaders = {
   'Content-Type': 'text/event-stream',
   'Cache-Control': 'no-cache',
   'Connection': 'keep-alive',
-  'X-Accel-Buffering': 'no', // Disable NGINX buffering
+  'X-Accel-Buffering': 'no',
 };
 
 /**
@@ -54,6 +64,10 @@ export const DisconnectReason = {
   // Connection issues
   IDLE_TIMEOUT: 'idle_timeout',
   NETWORK_ERROR: 'network_error',
+  
+  // Liveness detection (SSRK-123)
+  HEARTBEAT_MISSED: 'heartbeat_missed',
+  LIVENESS_TIMEOUT: 'liveness_timeout',
   
   // Policy/limits
   OVERLOAD_REJECT: 'overload_reject',

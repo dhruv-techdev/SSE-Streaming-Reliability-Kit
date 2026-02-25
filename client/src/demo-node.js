@@ -1,6 +1,6 @@
 /**
- * SSE Client Demo (US-11)
- * Shows heartbeat events
+ * SSE Client Demo (US-12)
+ * Shows liveness detection
  */
 import { connectSSE, ConnectionState } from './sse-connector.js';
 
@@ -16,6 +16,7 @@ const stats = {
   heartbeatsReceived: 0,
   controlEvents: 0,
   errors: 0,
+  livenessFailures: 0,
   retries: [],
   stateChanges: [],
   gaveUp: false,
@@ -26,7 +27,7 @@ const stats = {
 function log(tag, message, data = null) {
   const ts = new Date().toISOString().split('T')[1].slice(0, -1);
   const dataStr = data ? ` ${JSON.stringify(data)}` : '';
-  console.log(`[${ts}] [${tag.padEnd(10)}] ${message}${dataStr}`);
+  console.log(`[${ts}] [${tag.padEnd(12)}] ${message}${dataStr}`);
 }
 
 const connector = connectSSE(url, {
@@ -39,6 +40,11 @@ const connector = connectSSE(url, {
     maxRetryTimeMs: 60000,
     jitterPct: 0.2,
   },
+  
+  // Liveness detection (SSRK-121)
+  enableLivenessCheck: true,
+  livenessTimeoutMs: 45000, // 45 seconds
+  livenessGracePeriodMs: 5000, // 5 second grace period
   
   onStateChange: ({ previous, current, reason }) => {
     stats.stateChanges.push({ from: previous, to: current, reason });
@@ -54,6 +60,16 @@ const connector = connectSSE(url, {
     stats.gaveUp = true;
     stats.giveUpInfo = { reason, attempts, elapsedMs, lastError };
     log('GIVE_UP', `Stopped retrying: ${reason}`, { attempts, elapsedMs });
+  },
+
+  // Liveness failure callback (SSRK-125)
+  onLivenessFailure: ({ lastHeartbeatAt, elapsedMs, timeoutMs }) => {
+    stats.livenessFailures++;
+    log('LIVENESS', `❌ Heartbeat missed!`, { 
+      elapsedMs,
+      timeoutMs,
+      lastHeartbeatAt: lastHeartbeatAt ? new Date(lastHeartbeatAt).toISOString() : 'never',
+    });
   },
 
   onOpen: ({ url, lastEventId, state, reconnectCount }) => {
@@ -77,7 +93,6 @@ const connector = connectSSE(url, {
     }
   },
 
-  // Heartbeat callback (SSRK-113)
   onHeartbeat: (envelope) => {
     stats.heartbeatsReceived++;
     const { payload } = envelope;
@@ -106,7 +121,10 @@ const connector = connectSSE(url, {
 });
 
 log('CONNECT', `Connecting to ${url}...`);
-log('POLICY', 'Retry policy configured', connector.getRetryPolicy().getConfig());
+log('CONFIG', 'Liveness detection enabled', {
+  timeoutMs: connector.options.livenessTimeoutMs,
+  gracePeriodMs: connector.options.livenessGracePeriodMs,
+});
 
 setTimeout(() => {
   log('DONE', `Test duration (${duration}ms) reached`);
@@ -118,7 +136,7 @@ setTimeout(() => {
 function printSummary() {
   const elapsed = Date.now() - stats.startTime;
   const connectorStats = connector.getStats();
-  const policy = connector.getRetryPolicy().getConfig();
+  const livenessStats = connectorStats.liveness;
 
   console.log(`
 ╔═══════════════════════════════════════════════════════════╗
@@ -132,6 +150,13 @@ function printSummary() {
 ║  Control Events:    ${String(stats.controlEvents).padEnd(36)}║
 ║  Errors:            ${String(stats.errors).padEnd(36)}║
 ║  Reconnect Count:   ${String(connectorStats.reconnectCount).padEnd(36)}║
+╠═══════════════════════════════════════════════════════════╣
+║  LIVENESS DETECTION:                                       ║
+║    Timeout:         ${String(livenessStats.timeoutMs + 'ms').padEnd(36)}║
+║    Grace Period:    ${String(livenessStats.gracePeriodMs + 'ms').padEnd(36)}║
+║    HB Received:     ${String(livenessStats.heartbeatsReceived).padEnd(36)}║
+║    Failures:        ${String(livenessStats.failureCount).padEnd(36)}║
+║    Last HB:         ${String(livenessStats.timeSinceLastHeartbeat ? livenessStats.timeSinceLastHeartbeat + 'ms ago' : 'N/A').padEnd(36)}║
 ╠═══════════════════════════════════════════════════════════╣
 ║  STATE HISTORY:                                            ║`);
   
