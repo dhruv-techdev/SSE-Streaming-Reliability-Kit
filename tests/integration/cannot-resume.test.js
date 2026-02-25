@@ -210,9 +210,11 @@ describe('Cannot Resume Integration', () => {
       }).on('error', reject);
     });
 
-    expect(health.metrics.cannotResumeCount).toBeGreaterThan(0);
-    expect(health.metrics.cannotResumeReasons).toBeDefined();
-    expect(health.metrics.cannotResumeReasons.event_not_found).toBeGreaterThan(0);
+    const cannotResumeTotal = health.metrics.counters.cannot_resume_total;
+    expect(cannotResumeTotal).toBeDefined();
+    const totalCount = Object.values(cannotResumeTotal).reduce((a, b) => a + b, 0);
+    expect(totalCount).toBeGreaterThan(0);
+    expect(cannotResumeTotal.event_not_found).toBeGreaterThan(0);
   });
 
   it('should include action suggestion in cannot_resume payload (SSRK-141)', async () => {
