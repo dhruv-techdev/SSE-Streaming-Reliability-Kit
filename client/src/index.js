@@ -19,6 +19,9 @@ export {
   MemoryStorage,
   FileStorage,
   LocalStorageAdapter,
+  DedupeCache,
+  createDedupeCache,
+  DEDUPE_DEFAULTS,
   CannotResumeFallback,
 } from './sse-connector.js';
 
