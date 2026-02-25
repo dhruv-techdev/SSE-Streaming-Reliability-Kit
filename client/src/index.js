@@ -12,6 +12,8 @@ export {
   ReconnectManager,
   RECONNECTABLE_REASONS,
   GiveUpReason,
+  LivenessMonitor,
+  createLivenessMonitor,
 } from './sse-connector.js';
 
 export { StateMachine, createStateMachine } from './state-machine.js';
