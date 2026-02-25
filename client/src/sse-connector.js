@@ -1,6 +1,6 @@
 /**
- * SSE Client Connector (US-07, US-08, US-09, US-10, US-12)
- * With state machine, retry policy, and liveness detection
+ * SSE Client Connector (US-07 through US-13)
+ * With state machine, retry policy, liveness detection, and Last-Event-ID resume
  */
 import http from 'http';
 import https from 'https';
@@ -20,6 +20,7 @@ import {
 import { RetryPolicy, DEFAULT_RETRY_POLICY } from './retry-policy.js';
 import { ReconnectManager, RECONNECTABLE_REASONS, GiveUpReason } from './reconnect-manager.js';
 import { LivenessMonitor, createLivenessMonitor } from './liveness-monitor.js';
+import { EventIdStore, createEventIdStore, MemoryStorage } from './event-id-store.js';
 
 /**
  * SSE Connector Class
@@ -46,10 +47,15 @@ export class SSEConnector {
       // Timeouts
       timeout: options.timeout || Defaults.CLIENT_TIMEOUT_MS,
       
-      // Liveness detection (SSRK-121)
+      // Liveness detection
       livenessTimeoutMs: options.livenessTimeoutMs || Defaults.LIVENESS_TIMEOUT_MS,
       livenessGracePeriodMs: options.livenessGracePeriodMs || Defaults.LIVENESS_GRACE_PERIOD_MS,
       enableLivenessCheck: options.enableLivenessCheck !== false,
+      
+      // Last-Event-ID persistence (SSRK-129)
+      persistLastEventId: options.persistLastEventId || false,
+      eventIdStorage: options.eventIdStorage || null,
+      streamId: options.streamId || 'default',
       
       // Auto-reconnect
       autoReconnect: options.autoReconnect !== false,
@@ -72,8 +78,11 @@ export class SSEConnector {
       // Give up callback
       onGiveUp: options.onGiveUp || null,
       
-      // Liveness failure callback (SSRK-125)
+      // Liveness failure callback
       onLivenessFailure: options.onLivenessFailure || null,
+      
+      // Resume attempt callback (SSRK-132)
+      onResumeAttempt: options.onResumeAttempt || null,
       
       // Reserved event handlers
       onHeartbeat: options.onHeartbeat || null,
@@ -102,7 +111,7 @@ export class SSEConnector {
       onGiveUp: (info) => this._handleGiveUp(info),
     });
 
-    // Liveness monitor (SSRK-120, SSRK-122)
+    // Liveness monitor
     this._livenessMonitor = createLivenessMonitor({
       timeoutMs: this.options.livenessTimeoutMs,
       gracePeriodMs: this.options.livenessGracePeriodMs,
@@ -110,8 +119,15 @@ export class SSEConnector {
       onLivenessFailure: (info) => this._handleLivenessFailure(info),
     });
 
+    // Event ID store for Last-Event-ID tracking (SSRK-128, SSRK-129)
+    this._eventIdStore = createEventIdStore({
+      streamId: this.options.streamId,
+      storage: this.options.eventIdStorage || new MemoryStorage(),
+      persist: this.options.persistLastEventId,
+      debug: this.options.debug,
+    });
+
     // Connection state
-    this.lastEventId = null;
     this.request = null;
     this.response = null;
     this.timeoutTimer = null;
@@ -125,7 +141,22 @@ export class SSEConnector {
       disconnectedAt: null,
       reconnectCount: 0,
       livenessFailures: 0,
+      resumeAttempts: 0,
     };
+  }
+
+  /**
+   * Get current lastEventId (SSRK-128)
+   */
+  get lastEventId() {
+    return this._eventIdStore.get();
+  }
+
+  /**
+   * Set lastEventId (for external initialization)
+   */
+  set lastEventId(value) {
+    this._eventIdStore.set(value);
   }
 
   /**
@@ -182,7 +213,6 @@ export class SSEConnector {
       console.log(`[CONNECTOR] Gave up: ${info.reason} after ${info.attempts} attempts (${info.elapsedMs}ms)`);
     }
 
-    // Stop liveness monitor (SSRK-127)
     this._livenessMonitor.stop();
 
     this._stateMachine.close(TransitionReason.RETRY_EXHAUSTED);
@@ -206,8 +236,7 @@ export class SSEConnector {
   }
 
   /**
-   * Handle liveness failure (SSRK-123, SSRK-125)
-   * Triggered when heartbeat is missed
+   * Handle liveness failure
    */
   _handleLivenessFailure(info) {
     if (this._stopped) return;
@@ -218,7 +247,6 @@ export class SSEConnector {
       console.log(`[CONNECTOR] Liveness failure: ${info.reason} (${info.elapsedMs}ms since last heartbeat)`);
     }
 
-    // Fire callback (SSRK-125)
     if (this.options.onLivenessFailure) {
       this.options.onLivenessFailure({
         lastHeartbeatAt: info.lastHeartbeatAt,
@@ -227,7 +255,6 @@ export class SSEConnector {
       });
     }
 
-    // Trigger reconnect flow (SSRK-123)
     this._handleDisconnect(DisconnectReason.HEARTBEAT_MISSED);
   }
 
@@ -241,6 +268,7 @@ export class SSEConnector {
       this._stateMachine.reset();
       this._reconnectManager.restart();
       this._livenessMonitor.reset();
+      // Note: Do NOT clear lastEventId on restart - we want to resume (SSRK-128)
     }
 
     if (this._stateMachine.is(ConnectionState.OPEN) || 
@@ -287,8 +315,24 @@ export class SSEConnector {
       },
     };
 
-    if (this.lastEventId) {
-      requestOptions.headers['Last-Event-ID'] = this.lastEventId;
+    // Attach Last-Event-ID header on connect/reconnect (SSRK-130)
+    const lastEventId = this._eventIdStore.get();
+    if (lastEventId) {
+      requestOptions.headers['Last-Event-ID'] = lastEventId;
+      this.stats.resumeAttempts++;
+      
+      if (this.options.debug) {
+        console.log(`[CONNECTOR] Attaching Last-Event-ID: ${lastEventId}`);
+      }
+      
+      // Fire resume attempt callback (SSRK-132)
+      if (this.options.onResumeAttempt) {
+        this.options.onResumeAttempt({
+          lastEventId,
+          attempt: this.stats.resumeAttempts,
+          reconnectCount: this.stats.reconnectCount,
+        });
+      }
     }
 
     this.request = protocol.get(requestOptions, (res) => {
@@ -339,7 +383,7 @@ export class SSEConnector {
     this.stats.connectedAt = Date.now();
     this._resetTimeout();
 
-    // Start liveness monitor (SSRK-122, SSRK-124)
+    // Start liveness monitor
     if (this.options.enableLivenessCheck) {
       this._livenessMonitor.reset();
       this._livenessMonitor.start();
@@ -347,7 +391,7 @@ export class SSEConnector {
 
     this.options.onOpen({
       url: this.url.href,
-      lastEventId: this.lastEventId,
+      lastEventId: this._eventIdStore.get(),
       state: this._stateMachine.state,
       reconnectCount: this.stats.reconnectCount,
     });
@@ -391,8 +435,10 @@ export class SSEConnector {
 
     const parsed = parseSSEChunk(raw);
     
+    // Update lastEventId from SSE id field (SSRK-128)
+    // This is the raw SSE id, envelope event_id is used as backup
     if (parsed.id) {
-      this.lastEventId = parsed.id;
+      this._eventIdStore.set(parsed.id);
     }
 
     if (parsed.retry) {
@@ -420,8 +466,12 @@ export class SSEConnector {
 
     this.stats.eventsReceived++;
     
-    // Record event for liveness (SSRK-120)
+    // Record event for liveness
     this._livenessMonitor.recordEvent();
+    
+    // Update lastEventId from envelope (SSRK-128)
+    // Skip heartbeats - they don't count as resume points
+    this._eventIdStore.updateFromEvent(envelope);
     
     this._routeEvent(envelope);
   }
@@ -432,7 +482,7 @@ export class SSEConnector {
   _routeEvent(envelope) {
     const { type } = envelope;
 
-    // Heartbeat - record for liveness (SSRK-120)
+    // Heartbeat
     if (type === ReservedEventTypes.HEARTBEAT) {
       this._livenessMonitor.recordHeartbeat();
       
@@ -493,7 +543,6 @@ export class SSEConnector {
     this._clearTimeout();
     this._cleanup();
 
-    // Stop liveness monitor (SSRK-127)
     this._livenessMonitor.stop();
 
     this._stateMachine.error(reason, { source, message: err.message });
@@ -518,7 +567,6 @@ export class SSEConnector {
     this._clearTimeout();
     this._cleanup();
 
-    // Stop liveness monitor (SSRK-127)
     this._livenessMonitor.stop();
 
     this._stateMachine.error(reason);
@@ -553,6 +601,7 @@ export class SSEConnector {
         attempt: this._reconnectManager.attempt + 1,
         elapsedMs: this._reconnectManager.getElapsedTime(),
         state: this._stateMachine.state,
+        lastEventId: this._eventIdStore.get(), // Include for debugging
       });
     }
   }
@@ -584,7 +633,7 @@ export class SSEConnector {
   }
 
   /**
-   * Cleanup connection resources (SSRK-127)
+   * Cleanup connection resources
    */
   _cleanup() {
     if (this.response) {
@@ -594,14 +643,14 @@ export class SSEConnector {
   }
 
   /**
-   * Stop and disconnect (SSRK-127)
-   * Clears all timers including liveness monitor
+   * Stop and disconnect (SSRK-131)
+   * Disables resume flow - intentional shutdown
    */
   stop() {
     this._stopped = true;
     this._clearTimeout();
     this._reconnectManager.stop();
-    this._livenessMonitor.stop(); // SSRK-127
+    this._livenessMonitor.stop();
 
     if (this.request) {
       this.request.destroy();
@@ -611,6 +660,18 @@ export class SSEConnector {
     this._cleanup();
     this._stateMachine.forceClose(TransitionReason.USER_STOP);
     this.stats.disconnectedAt = Date.now();
+    
+    // Note: We do NOT clear lastEventId on stop() (SSRK-131)
+    // This allows the user to call connect() later and resume
+    // To truly reset, user should call clearLastEventId()
+  }
+
+  /**
+   * Clear stored lastEventId
+   * Use this when you want to start fresh without resume
+   */
+  clearLastEventId() {
+    this._eventIdStore.clear();
   }
 
   /**
@@ -656,6 +717,13 @@ export class SSEConnector {
   }
 
   /**
+   * Get event ID store instance
+   */
+  getEventIdStore() {
+    return this._eventIdStore;
+  }
+
+  /**
    * Check if given up
    */
   get hasGivenUp() {
@@ -669,7 +737,7 @@ export class SSEConnector {
     return {
       ...this.stats,
       state: this._stateMachine.state,
-      lastEventId: this.lastEventId,
+      lastEventId: this._eventIdStore.get(),
       retryAttempt: this._reconnectManager.attempt,
       hasGivenUp: this._reconnectManager.hasGivenUp,
       giveUpReason: this._reconnectManager.giveUpReason,
@@ -701,6 +769,7 @@ export class SSEConnector {
     this._stateMachine.setDebug(enabled);
     this._reconnectManager.setDebug(enabled);
     this._livenessMonitor.setDebug(enabled);
+    this._eventIdStore.setDebug(enabled);
   }
 }
 
@@ -718,5 +787,6 @@ export { ConnectionState, TransitionReason } from './state-machine.js';
 export { RetryPolicy, RetryPolicies, DEFAULT_RETRY_POLICY } from './retry-policy.js';
 export { ReconnectManager, RECONNECTABLE_REASONS, GiveUpReason } from './reconnect-manager.js';
 export { LivenessMonitor, createLivenessMonitor } from './liveness-monitor.js';
+export { EventIdStore, createEventIdStore, MemoryStorage, FileStorage, LocalStorageAdapter } from './event-id-store.js';
 
 export default SSEConnector;

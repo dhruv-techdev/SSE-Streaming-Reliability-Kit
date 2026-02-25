@@ -14,6 +14,11 @@ export {
   GiveUpReason,
   LivenessMonitor,
   createLivenessMonitor,
+  EventIdStore,
+  createEventIdStore,
+  MemoryStorage,
+  FileStorage,
+  LocalStorageAdapter,
 } from './sse-connector.js';
 
 export { StateMachine, createStateMachine } from './state-machine.js';

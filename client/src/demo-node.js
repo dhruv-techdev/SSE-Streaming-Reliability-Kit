@@ -1,6 +1,6 @@
 /**
- * SSE Client Demo (US-12)
- * Shows liveness detection
+ * SSE Client Demo (US-13)
+ * Shows Last-Event-ID resume
  */
 import { connectSSE, ConnectionState } from './sse-connector.js';
 
@@ -17,6 +17,7 @@ const stats = {
   controlEvents: 0,
   errors: 0,
   livenessFailures: 0,
+  resumeAttempts: 0,
   retries: [],
   stateChanges: [],
   gaveUp: false,
@@ -41,10 +42,14 @@ const connector = connectSSE(url, {
     jitterPct: 0.2,
   },
   
-  // Liveness detection (SSRK-121)
+  // Liveness detection
   enableLivenessCheck: true,
-  livenessTimeoutMs: 45000, // 45 seconds
-  livenessGracePeriodMs: 5000, // 5 second grace period
+  livenessTimeoutMs: 45000,
+  livenessGracePeriodMs: 5000,
+  
+  // Last-Event-ID persistence (SSRK-129)
+  persistLastEventId: false, // Use in-memory for demo
+  streamId: 'demo-stream',
   
   onStateChange: ({ previous, current, reason }) => {
     stats.stateChanges.push({ from: previous, to: current, reason });
@@ -62,34 +67,44 @@ const connector = connectSSE(url, {
     log('GIVE_UP', `Stopped retrying: ${reason}`, { attempts, elapsedMs });
   },
 
-  // Liveness failure callback (SSRK-125)
   onLivenessFailure: ({ lastHeartbeatAt, elapsedMs, timeoutMs }) => {
     stats.livenessFailures++;
     log('LIVENESS', `❌ Heartbeat missed!`, { 
       elapsedMs,
       timeoutMs,
-      lastHeartbeatAt: lastHeartbeatAt ? new Date(lastHeartbeatAt).toISOString() : 'never',
+    });
+  },
+
+  // Resume attempt callback (SSRK-132)
+  onResumeAttempt: ({ lastEventId, attempt, reconnectCount }) => {
+    stats.resumeAttempts++;
+    log('RESUME', `��� Attempting resume`, {
+      lastEventId: lastEventId.slice(0, 20) + '...',
+      attempt,
+      reconnectCount,
     });
   },
 
   onOpen: ({ url, lastEventId, state, reconnectCount }) => {
     log('OPEN', `Connected to ${url}`, { 
       state, 
-      resumeFrom: lastEventId || 'none',
+      resumeFrom: lastEventId ? lastEventId.slice(0, 20) + '...' : 'none',
       reconnectCount,
     });
   },
 
   onEvent: (envelope) => {
     stats.eventsReceived++;
-    const { type, payload, sequence } = envelope;
+    const { type, payload, sequence, event_id } = envelope;
 
     if (type.startsWith('control.')) {
       stats.controlEvents++;
       log('CONTROL', `✓ ${type}`, payload);
     } else if (type.startsWith('domain.')) {
       stats.ticksReceived++;
-      log('EVENT', `✓ ${type} seq=${sequence || 'N/A'}`, payload);
+      log('EVENT', `✓ ${type} seq=${sequence || 'N/A'}`, {
+        id: event_id.slice(0, 12) + '...',
+      });
     }
   },
 
@@ -98,7 +113,6 @@ const connector = connectSSE(url, {
     const { payload } = envelope;
     log('HEARTBEAT', `♥ #${stats.heartbeatsReceived}`, {
       server_time: payload.server_time,
-      interval_ms: payload.interval_ms,
     });
   },
 
@@ -107,13 +121,14 @@ const connector = connectSSE(url, {
     log('ERROR', `[${error.type}] ${error.message}`, { source: error.source });
   },
 
-  onClose: ({ reason, willReconnect, retryIn, attempt, elapsedMs, state }) => {
+  onClose: ({ reason, willReconnect, retryIn, attempt, elapsedMs, state, lastEventId }) => {
     log('CLOSE', `Connection closed: ${reason}`, { 
       willReconnect, 
       retryIn, 
       attempt,
       elapsedMs,
       state,
+      lastEventId: lastEventId ? lastEventId.slice(0, 12) + '...' : 'none',
     });
   },
 
@@ -121,9 +136,9 @@ const connector = connectSSE(url, {
 });
 
 log('CONNECT', `Connecting to ${url}...`);
-log('CONFIG', 'Liveness detection enabled', {
-  timeoutMs: connector.options.livenessTimeoutMs,
-  gracePeriodMs: connector.options.livenessGracePeriodMs,
+log('CONFIG', 'Last-Event-ID resume enabled', {
+  streamId: 'demo-stream',
+  persistLastEventId: false,
 });
 
 setTimeout(() => {
@@ -151,12 +166,14 @@ function printSummary() {
 ║  Errors:            ${String(stats.errors).padEnd(36)}║
 ║  Reconnect Count:   ${String(connectorStats.reconnectCount).padEnd(36)}║
 ╠═══════════════════════════════════════════════════════════╣
+║  LAST-EVENT-ID RESUME:                                     ║
+║    Current ID:      ${String(connector.lastEventId ? connector.lastEventId.slice(0, 20) + '...' : 'none').padEnd(36)}║
+║    Resume Attempts: ${String(connectorStats.resumeAttempts).padEnd(36)}║
+║    Has Resume Pt:   ${String(connector.getEventIdStore().hasResumePoint()).padEnd(36)}║
+╠═══════════════════════════════════════════════════════════╣
 ║  LIVENESS DETECTION:                                       ║
-║    Timeout:         ${String(livenessStats.timeoutMs + 'ms').padEnd(36)}║
-║    Grace Period:    ${String(livenessStats.gracePeriodMs + 'ms').padEnd(36)}║
 ║    HB Received:     ${String(livenessStats.heartbeatsReceived).padEnd(36)}║
 ║    Failures:        ${String(livenessStats.failureCount).padEnd(36)}║
-║    Last HB:         ${String(livenessStats.timeSinceLastHeartbeat ? livenessStats.timeSinceLastHeartbeat + 'ms ago' : 'N/A').padEnd(36)}║
 ╠═══════════════════════════════════════════════════════════╣
 ║  STATE HISTORY:                                            ║`);
   
