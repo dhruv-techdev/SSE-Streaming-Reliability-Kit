@@ -1,7 +1,7 @@
 /**
- * SSE Client Connector (US-07 through US-16)
+ * SSE Client Connector (US-07 through US-17)
  * With state machine, retry policy, liveness detection, Last-Event-ID resume,
- * cannot-resume fallback handling, and duplicate detection
+ * cannot-resume fallback handling, duplicate detection, and ordering enforcement
  */
 import http from 'http';
 import https from 'https';
@@ -24,6 +24,7 @@ import { ReconnectManager, RECONNECTABLE_REASONS, GiveUpReason } from './reconne
 import { LivenessMonitor, createLivenessMonitor } from './liveness-monitor.js';
 import { EventIdStore, createEventIdStore, MemoryStorage } from './event-id-store.js';
 import { DedupeCache, createDedupeCache, DEDUPE_DEFAULTS } from './dedupe-cache.js';
+import { OrderingGuard, createOrderingGuard, OrderingRule, OutOfOrderPolicy } from './ordering-guard.js';
 
 /**
  * Fallback behavior options
@@ -72,10 +73,18 @@ export class SSEConnector {
       // Cannot-resume fallback behavior
       cannotResumeFallback: options.cannotResumeFallback || CannotResumeFallback.START_FRESH,
       
-      // Dedupe configuration (SSRK-149)
+      // Dedupe configuration
       enableDedupe: options.enableDedupe !== false,
       dedupeMaxSize: options.dedupeMaxSize || DEDUPE_DEFAULTS.MAX_SIZE,
       dedupeTtlMs: options.dedupeTtlMs || DEDUPE_DEFAULTS.TTL_MS,
+      
+      // Ordering configuration (SSRK-152)
+      enableOrdering: options.enableOrdering !== false,
+      orderingRule: options.orderingRule || OrderingRule.SEQUENCE,
+      outOfOrderPolicy: options.outOfOrderPolicy || OutOfOrderPolicy.DROP_WITH_CALLBACK,
+      
+      // Idempotency guardrail hook (SSRK-155)
+      shouldProcess: options.shouldProcess || null,
       
       // Auto-reconnect
       autoReconnect: options.autoReconnect !== false,
@@ -107,8 +116,11 @@ export class SSEConnector {
       // Cannot resume callback
       onCannotResume: options.onCannotResume || null,
       
-      // Duplicate callback (SSRK-150)
+      // Duplicate callback
       onDuplicate: options.onDuplicate || null,
+      
+      // Out-of-order callback (SSRK-154)
+      onOutOfOrder: options.onOutOfOrder || null,
       
       // Reserved event handlers
       onHeartbeat: options.onHeartbeat || null,
@@ -153,12 +165,21 @@ export class SSEConnector {
       debug: this.options.debug,
     });
 
-    // Dedupe cache (SSRK-147)
+    // Dedupe cache
     this._dedupeCache = createDedupeCache({
       maxSize: this.options.dedupeMaxSize,
       ttlMs: this.options.dedupeTtlMs,
       debug: this.options.debug,
       onDuplicate: (info) => this._handleDuplicate(info),
+    });
+
+    // Ordering guard (SSRK-152, SSRK-153, SSRK-154)
+    this._orderingGuard = createOrderingGuard({
+      orderingRule: this.options.orderingRule,
+      outOfOrderPolicy: this.options.outOfOrderPolicy,
+      shouldProcess: this.options.shouldProcess,
+      debug: this.options.debug,
+      onOutOfOrder: (info) => this._handleOutOfOrder(info),
     });
 
     // Connection state
@@ -180,6 +201,7 @@ export class SSEConnector {
       resumeAttempts: 0,
       cannotResumeCount: 0,
       duplicatesIgnored: 0,
+      outOfOrderDropped: 0,
     };
   }
 
@@ -198,7 +220,7 @@ export class SSEConnector {
   }
 
   /**
-   * Handle duplicate detection (SSRK-150)
+   * Handle duplicate detection
    */
   _handleDuplicate(info) {
     this.stats.duplicatesIgnored++;
@@ -212,6 +234,28 @@ export class SSEConnector {
         event_id: info.event_id,
         type: info.type,
         totalDuplicates: this.stats.duplicatesIgnored,
+      });
+    }
+  }
+
+  /**
+   * Handle out-of-order event (SSRK-154)
+   */
+  _handleOutOfOrder(info) {
+    this.stats.outOfOrderDropped++;
+    
+    if (this.options.debug) {
+      console.log(`[CONNECTOR] Out-of-order dropped: ${info.event_id} (${info.reason})`);
+    }
+    
+    if (this.options.onOutOfOrder) {
+      this.options.onOutOfOrder({
+        event_id: info.event_id,
+        type: info.type,
+        sequence: info.sequence,
+        reason: info.reason,
+        lastAcceptedSequence: info.lastAcceptedSequence,
+        lastAcceptedEventId: info.lastAcceptedEventId,
       });
     }
   }
@@ -331,9 +375,11 @@ export class SSEConnector {
 
     if (fallback === CannotResumeFallback.START_FRESH) {
       this._eventIdStore.clear();
+      // Reset ordering guard on fresh start
+      this._orderingGuard.reset();
 
       if (this.options.debug) {
-        console.log(`[CONNECTOR] Fallback: start_fresh - cleared lastEventId`);
+        console.log(`[CONNECTOR] Fallback: start_fresh - cleared lastEventId and ordering markers`);
       }
     }
 
@@ -395,9 +441,10 @@ export class SSEConnector {
    */
   startFresh() {
     if (this.options.debug) {
-      console.log('[CONNECTOR] Starting fresh (clearing lastEventId)');
+      console.log('[CONNECTOR] Starting fresh (clearing lastEventId and ordering markers)');
     }
     this._eventIdStore.clear();
+    this._orderingGuard.reset();
     return this.connect();
   }
 
@@ -571,10 +618,18 @@ export class SSEConnector {
     // Record event for liveness
     this._livenessMonitor.recordEvent();
     
-    // Check for duplicate (SSRK-146, SSRK-147)
+    // Check for duplicate
     if (this.options.enableDedupe && this._dedupeCache.isDuplicate(envelope)) {
-      // Duplicate detected - skip processing
       return;
+    }
+
+    // Check ordering (SSRK-153, SSRK-154)
+    if (this.options.enableOrdering) {
+      const orderCheck = this._orderingGuard.check(envelope);
+      if (!orderCheck.accept) {
+        // Event dropped due to ordering violation
+        return;
+      }
     }
     
     this.stats.eventsProcessed++;
@@ -792,6 +847,13 @@ export class SSEConnector {
   }
 
   /**
+   * Reset ordering guard markers
+   */
+  resetOrderingMarkers() {
+    this._orderingGuard.reset();
+  }
+
+  /**
    * Alias for stop()
    */
   disconnect() {
@@ -848,6 +910,13 @@ export class SSEConnector {
   }
 
   /**
+   * Get ordering guard instance
+   */
+  getOrderingGuard() {
+    return this._orderingGuard;
+  }
+
+  /**
    * Check if given up
    */
   get hasGivenUp() {
@@ -869,6 +938,7 @@ export class SSEConnector {
       reconnect: this._reconnectManager.getStats(),
       liveness: this._livenessMonitor.getStats(),
       dedupe: this._dedupeCache.getStats(),
+      ordering: this._orderingGuard.getStats(),
     };
   }
 
@@ -896,6 +966,7 @@ export class SSEConnector {
     this._livenessMonitor.setDebug(enabled);
     this._eventIdStore.setDebug(enabled);
     this._dedupeCache.setDebug(enabled);
+    this._orderingGuard.setDebug(enabled);
   }
 }
 
@@ -915,6 +986,7 @@ export { ReconnectManager, RECONNECTABLE_REASONS, GiveUpReason } from './reconne
 export { LivenessMonitor, createLivenessMonitor } from './liveness-monitor.js';
 export { EventIdStore, createEventIdStore, MemoryStorage, FileStorage, LocalStorageAdapter } from './event-id-store.js';
 export { DedupeCache, createDedupeCache, DEDUPE_DEFAULTS } from './dedupe-cache.js';
+export { OrderingGuard, createOrderingGuard, OrderingRule, OutOfOrderPolicy } from './ordering-guard.js';
 export { CannotResumeFallback };
 
 export default SSEConnector;
