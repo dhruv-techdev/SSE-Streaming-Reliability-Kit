@@ -158,8 +158,8 @@ describe('Server Heartbeat Integration', () => {
       }).on('error', reject);
     });
 
-    expect(health.heartbeatMetrics).toBeDefined();
-    expect(health.heartbeatMetrics.totalSent).toBeGreaterThan(0);
+    expect(health.metrics).toBeDefined();
+    expect(health.metrics.heartbeatsSent).toBeGreaterThan(0);
   });
 
   it('should report heartbeat config in /info', async () => {

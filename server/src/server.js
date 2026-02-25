@@ -1,12 +1,13 @@
 /**
- * SSE Reference Server (US-11)
- * Implements heartbeat/keepalive events
+ * SSE Reference Server (US-14)
+ * Implements server replay strategy for resume
  */
 import Fastify from 'fastify';
 import { config } from './config.js';
 import { createSSEWriter } from './sse-writer.js';
 import { createStreamManager } from './stream-manager.js';
 import { getRegistry } from './connection-registry.js';
+import { createReplayBuffer } from './replay-buffer.js';
 import { Defaults, DisconnectReason, SSEHeaders } from '../../shared/src/index.js';
 
 const fastify = Fastify({
@@ -21,29 +22,25 @@ const registry = getRegistry({
   },
 });
 
-// In-memory event buffer for replay
-const eventBuffer = [];
+// Global replay buffer (SSRK-135)
+const replayBuffer = createReplayBuffer({
+  maxSize: config.sse.maxBufferSize,
+  maxReplayBatch: config.sse.maxReplayBatch,
+  ttlMs: config.sse.bufferTtlMs,
+  debug: config.log.replay,
+});
 
-// Server-wide heartbeat metrics (SSRK-118)
-const heartbeatMetrics = {
-  totalSent: 0,
-  totalFailed: 0,
+// Server-wide metrics
+const serverMetrics = {
+  heartbeatsSent: 0,
+  heartbeatsFailed: 0,
   lastHeartbeatTime: null,
+  replaysAttempted: 0,
+  replaysSucceeded: 0,
+  replaysFailed: 0,
+  replayEventsSent: 0,
+  replaysTruncated: 0,
 };
-
-function addToBuffer(event) {
-  eventBuffer.push({ ...event, bufferedAt: Date.now() });
-  if (eventBuffer.length > config.sse.maxBufferSize) {
-    eventBuffer.shift();
-  }
-}
-
-function getEventsAfter(lastEventId) {
-  if (!lastEventId) return [];
-  const index = eventBuffer.findIndex(e => e.event_id === lastEventId);
-  if (index === -1) return null;
-  return eventBuffer.slice(index + 1);
-}
 
 let isShuttingDown = false;
 
@@ -55,8 +52,8 @@ fastify.get('/health', async (request, reply) => {
     status: isShuttingDown ? 'shutting_down' : 'ok',
     timestamp: new Date().toISOString(),
     connections: registry.size,
-    bufferedEvents: eventBuffer.length,
-    heartbeatMetrics, // SSRK-118
+    buffer: replayBuffer.getStats(),
+    metrics: serverMetrics,
   };
 });
 
@@ -72,19 +69,20 @@ fastify.get('/info', async (request, reply) => {
       heartbeatInterval: config.sse.heartbeatInterval,
       retryTimeout: config.sse.retryTimeout,
       maxBufferSize: config.sse.maxBufferSize,
+      maxReplayBatch: config.sse.maxReplayBatch,
       maxConnections: config.connections.maxConcurrent,
     },
     stats: {
       ...registry.getStats(),
-      bufferedEvents: eventBuffer.length,
-      heartbeatMetrics,
+      buffer: replayBuffer.getStats(),
+      metrics: serverMetrics,
       isShuttingDown,
     },
   };
 });
 
 /**
- * SSE Stream endpoint (SSRK-117: correct headers)
+ * SSE Stream endpoint
  */
 fastify.get('/stream', async (request, reply) => {
   if (isShuttingDown) {
@@ -113,7 +111,18 @@ fastify.get('/stream', async (request, reply) => {
     return;
   }
 
-  // Create SSE writer with correct headers (SSRK-117)
+  // Read Last-Event-ID from request (SSRK-134)
+  const lastEventId = request.headers['last-event-id'] || request.query.last_event_id || null;
+  
+  if (lastEventId) {
+    fastify.log.info({ connectionId, lastEventId }, 'Resume requested with Last-Event-ID');
+    
+    if (config.log.replay) {
+      console.log(`[REPLAY] [${connectionId}] Last-Event-ID: ${lastEventId}`);
+    }
+  }
+
+  // Create SSE writer
   const writer = createSSEWriter(reply.raw, {
     connectionId,
     onClose: (reason) => {
@@ -127,37 +136,36 @@ fastify.get('/stream', async (request, reply) => {
 
   writer.init();
 
-  // Create stream manager with heartbeat (SSRK-115)
+  // Create stream manager with heartbeat
   const stream = createStreamManager(writer, {
     connectionId,
     tickInterval: config.sse.tickInterval,
     heartbeatInterval: config.sse.heartbeatInterval,
     debug: config.log.heartbeats,
     onHeartbeatError: (info) => {
-      // Heartbeat write failed (SSRK-116)
-      heartbeatMetrics.totalFailed++;
+      serverMetrics.heartbeatsFailed++;
       fastify.log.warn({ connectionId, ...info }, 'Heartbeat failed');
       cleanupConnection(DisconnectReason.NETWORK_ERROR);
     },
   });
 
-  // Track heartbeats (SSRK-118)
+  // Track events for replay and metrics
   const originalSendEvent = writer.sendEvent.bind(writer);
   writer.sendEvent = (envelope) => {
     const success = originalSendEvent(envelope);
     
     if (success) {
-      addToBuffer(envelope);
+      // Add to replay buffer (skip heartbeats)
+      if (envelope.type !== 'system.heartbeat') {
+        replayBuffer.add(envelope);
+      }
+      
       registry.touch(connectionId);
       
-      // Update heartbeat metrics (SSRK-118)
+      // Update heartbeat metrics
       if (envelope.type === 'system.heartbeat') {
-        heartbeatMetrics.totalSent++;
-        heartbeatMetrics.lastHeartbeatTime = Date.now();
-        
-        if (config.log.heartbeats) {
-          fastify.log.debug({ connectionId, type: envelope.type }, 'Heartbeat sent');
-        }
+        serverMetrics.heartbeatsSent++;
+        serverMetrics.lastHeartbeatTime = Date.now();
       }
     }
     
@@ -174,25 +182,91 @@ fastify.get('/stream', async (request, reply) => {
 
   registry.setCleanup(connectionId, cleanupConnection);
 
-  // Handle Last-Event-ID for resume
-  const lastEventId = request.headers['last-event-id'] || request.query.last_event_id;
+  // Handle replay if Last-Event-ID provided (SSRK-136, SSRK-138)
+  let replayPerformed = false;
   
   if (lastEventId) {
-    const missedEvents = getEventsAfter(lastEventId);
+    serverMetrics.replaysAttempted++;
     
-    if (missedEvents === null) {
+    const replayResult = replayBuffer.getEventsAfter(lastEventId);
+    
+    if (!replayResult.found) {
+      // Event not in buffer - too old (SSRK-136)
+      serverMetrics.replaysFailed++;
+      
+      if (config.log.replay) {
+        console.log(`[REPLAY] [${connectionId}] Event not found: ${lastEventId} (reason: ${replayResult.reason})`);
+      }
+      
+      // Send control.reconnect to inform client
       writer.sendControl('reconnect', {
         reason: 'events_expired',
-        message: 'Requested events are no longer available',
+        message: 'Requested events are no longer available in buffer',
+        requestedId: lastEventId,
+        oldestAvailable: replayBuffer.oldestEventId,
+        newestAvailable: replayBuffer.newestEventId,
       });
-    } else if (missedEvents.length > 0) {
-      for (const event of missedEvents) {
-        originalSendEvent(event);
+    } else if (replayResult.events.length > 0) {
+      // Replay events (SSRK-136, SSRK-137)
+      serverMetrics.replaysSucceeded++;
+      replayPerformed = true;
+      
+      if (replayResult.truncated) {
+        serverMetrics.replaysTruncated++;
+        
+        if (config.log.replay) {
+          console.log(`[REPLAY] [${connectionId}] Truncated: ${replayResult.totalAvailable} → ${replayResult.events.length}`);
+        }
+        
+        // Inform client that replay was truncated (SSRK-138)
+        writer.sendControl('replay_start', {
+          reason: 'replay_truncated',
+          message: 'Too many events to replay, sending partial batch',
+          requestedId: lastEventId,
+          totalAvailable: replayResult.totalAvailable,
+          sending: replayResult.events.length,
+          maxReplayBatch: config.sse.maxReplayBatch,
+        });
+      } else {
+        writer.sendControl('replay_start', {
+          reason: 'replay_started',
+          requestedId: lastEventId,
+          eventCount: replayResult.events.length,
+        });
       }
+      
+      // Send replayed events in order (SSRK-137)
+      for (const event of replayResult.events) {
+        originalSendEvent(event); // Use original to avoid re-buffering
+        serverMetrics.replayEventsSent++;
+      }
+      
+      if (config.log.replay) {
+        console.log(`[REPLAY] [${connectionId}] Sent ${replayResult.events.length} events`);
+      }
+      
+      writer.sendControl('replay_end', {
+        reason: 'replay_complete',
+        eventCount: replayResult.events.length,
+        truncated: replayResult.truncated,
+      });
+    } else {
+      // No events to replay (client is caught up)
+      serverMetrics.replaysSucceeded++;
+      
+      if (config.log.replay) {
+        console.log(`[REPLAY] [${connectionId}] No events to replay (client is current)`);
+      }
+      
+      writer.sendControl('replay_start', {
+        reason: 'no_replay_needed',
+        requestedId: lastEventId,
+        eventCount: 0,
+      });
     }
   }
 
-  // Start streaming (includes heartbeat scheduler)
+  // Start live streaming
   stream.start();
 
   // Handle client disconnect
@@ -213,6 +287,22 @@ fastify.get('/stream', async (request, reply) => {
 });
 
 /**
+ * Debug endpoint - view buffer state
+ */
+fastify.get('/debug/buffer', async (request, reply) => {
+  if (config.nodeEnv !== 'development' && config.nodeEnv !== 'test') {
+    reply.code(404).send({ error: 'Not found' });
+    return;
+  }
+
+  return {
+    stats: replayBuffer.getStats(),
+    oldestEventId: replayBuffer.oldestEventId,
+    newestEventId: replayBuffer.newestEventId,
+  };
+});
+
+/**
  * Graceful shutdown
  */
 async function gracefulShutdown(signal) {
@@ -221,6 +311,7 @@ async function gracefulShutdown(signal) {
   
   console.log(`\n[SHUTDOWN] Signal ${signal} received, starting graceful shutdown...`);
   console.log(`[SHUTDOWN] Active connections: ${registry.size}`);
+  console.log(`[SHUTDOWN] Buffer size: ${replayBuffer.size}`);
   
   fastify.server.unref();
   
@@ -235,7 +326,7 @@ async function gracefulShutdown(signal) {
   await fastify.close();
   
   console.log('[SHUTDOWN] Server stopped');
-  console.log(`[SHUTDOWN] Heartbeat stats: sent=${heartbeatMetrics.totalSent}, failed=${heartbeatMetrics.totalFailed}`);
+  console.log(`[SHUTDOWN] Metrics:`, JSON.stringify(serverMetrics, null, 2));
   process.exit(0);
 }
 
@@ -259,6 +350,8 @@ const start = async () => {
 ╠═══════════════════════════════════════════════════════════╣
 ║  Tick Interval:      ${String(config.sse.tickInterval).padEnd(6)}ms                        ║
 ║  Heartbeat Interval: ${String(config.sse.heartbeatInterval).padEnd(6)}ms                        ║
+║  Max Buffer Size:    ${String(config.sse.maxBufferSize).padEnd(6)}                          ║
+║  Max Replay Batch:   ${String(config.sse.maxReplayBatch).padEnd(6)}                          ║
 ║  Max Connections:    ${String(config.connections.maxConcurrent).padEnd(6)}                          ║
 ╚═══════════════════════════════════════════════════════════╝
     `);
