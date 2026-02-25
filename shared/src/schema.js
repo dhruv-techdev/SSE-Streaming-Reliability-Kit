@@ -21,7 +21,7 @@ export const eventEnvelopeSchema = {
       type: 'string',
       minLength: 1,
       maxLength: 100,
-      pattern: '^[a-z][a-z0-9]*([.][a-z][a-z0-9]*)*$',
+      pattern: '^[a-z][a-z0-9_]*([.][a-z][a-z0-9_]*)*$',
       description: 'Event type in dot-notation (e.g., system.heartbeat, domain.user.created)',
     },
     ts: {
