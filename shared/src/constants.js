@@ -1,17 +1,35 @@
 /**
- * SSE Protocol Constants
+ * SSE Protocol Constants (SSRK-114)
  */
 
 // Default configuration values
 export const Defaults = {
+  // Heartbeat interval - keep connection alive (SSRK-114)
+  // Safe default for most proxies (NGINX default timeout is 60s)
   HEARTBEAT_INTERVAL_MS: 30000,
+  
+  // Client timeout - should be > heartbeat interval
   CLIENT_TIMEOUT_MS: 45000,
+  
+  // Client retry interval suggestion
   RETRY_INTERVAL_MS: 3000,
+  
+  // Max retry attempts
   MAX_RETRY_ATTEMPTS: 10,
+  
+  // Max events to buffer for replay
   MAX_REPLAY_EVENTS: 1000,
 };
 
-// Required response headers for SSE
+// Environment variable names for configuration
+export const ConfigKeys = {
+  HEARTBEAT_INTERVAL_MS: 'SSE_HEARTBEAT_INTERVAL',
+  CLIENT_TIMEOUT_MS: 'SSE_CLIENT_TIMEOUT',
+  RETRY_INTERVAL_MS: 'SSE_RETRY_TIMEOUT',
+  MAX_CONNECTIONS: 'MAX_CONNECTIONS',
+};
+
+// Required response headers for SSE (SSRK-117)
 export const SSEHeaders = {
   'Content-Type': 'text/event-stream',
   'Cache-Control': 'no-cache',
@@ -20,52 +38,51 @@ export const SSEHeaders = {
 };
 
 /**
- * Disconnect/Error Reason Taxonomy (SSRK-64)
- * Used for observability and debugging
+ * Disconnect/Error Reason Taxonomy
  */
 export const DisconnectReason = {
   // Client-initiated
-  CLIENT_CLOSE: 'client_close',           // Client called close()
-  CLIENT_ABORT: 'client_abort',           // Client navigated away
-  CLIENT_TIMEOUT: 'client_timeout',       // Client didn't receive data in time
+  CLIENT_CLOSE: 'client_close',
+  CLIENT_ABORT: 'client_abort',
+  CLIENT_TIMEOUT: 'client_timeout',
   
   // Server-initiated
-  SERVER_SHUTDOWN: 'server_shutdown',     // Graceful server shutdown
-  SERVER_RESTART: 'server_restart',       // Server restarting
-  SERVER_ERROR: 'server_error',           // Unhandled server error
+  SERVER_SHUTDOWN: 'server_shutdown',
+  SERVER_RESTART: 'server_restart',
+  SERVER_ERROR: 'server_error',
   
   // Connection issues
-  IDLE_TIMEOUT: 'idle_timeout',           // No activity for too long
-  NETWORK_ERROR: 'network_error',         // Network failure
+  IDLE_TIMEOUT: 'idle_timeout',
+  NETWORK_ERROR: 'network_error',
   
   // Policy/limits
-  OVERLOAD_REJECT: 'overload_reject',     // Server too busy
-  RATE_LIMITED: 'rate_limited',           // Too many requests
-  AUTH_EXPIRED: 'auth_expired',           // Authentication expired
-  STREAM_ENDED: 'stream_ended',           // Stream completed normally
+  OVERLOAD_REJECT: 'overload_reject',
+  RATE_LIMITED: 'rate_limited',
+  AUTH_EXPIRED: 'auth_expired',
+  STREAM_ENDED: 'stream_ended',
   
   // Data issues
-  PARSE_ERROR: 'parse_error',             // Malformed data
-  INVALID_EVENT: 'invalid_event',         // Event validation failed
+  PARSE_ERROR: 'parse_error',
+  INVALID_EVENT: 'invalid_event',
 };
 
 /**
- * Client Connection States (SSRK-65)
+ * Client Connection States
  */
 export const ClientState = {
-  CONNECTING: 'connecting',   // Initial connection attempt
-  OPEN: 'open',               // Connected and receiving events
-  RETRYING: 'retrying',       // Disconnected, attempting reconnect
-  CLOSED: 'closed',           // Permanently closed
+  CONNECTING: 'connecting',
+  OPEN: 'open',
+  RETRYING: 'retrying',
+  CLOSED: 'closed',
 };
 
 /**
- * Server Stream States (SSRK-65)
+ * Server Stream States
  */
 export const ServerStreamState = {
-  INITIALIZING: 'initializing', // Setting up stream
-  STREAMING: 'streaming',       // Actively sending events
-  PAUSED: 'paused',             // Temporarily paused (backpressure)
-  DRAINING: 'draining',         // Sending final events before close
-  CLOSED: 'closed',             // Stream ended
+  INITIALIZING: 'initializing',
+  STREAMING: 'streaming',
+  PAUSED: 'paused',
+  DRAINING: 'draining',
+  CLOSED: 'closed',
 };

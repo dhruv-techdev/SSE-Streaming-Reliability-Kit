@@ -1,7 +1,6 @@
 /**
- * SSE Writer Utility (SSRK-69, SSRK-78)
- * Standardizes how events are formatted and flushed
- * Includes safe error handling for dead sockets
+ * SSE Writer Utility (SSRK-116, SSRK-117)
+ * Standardizes event formatting with safe writes and correct headers
  */
 import {
   encodeSSE,
@@ -22,10 +21,18 @@ export class SSEWriter {
     this.onClose = options.onClose || (() => {});
     this.onError = options.onError || (() => {});
     this.connectionId = options.connectionId || 'unknown';
+    
+    // Heartbeat tracking (SSRK-118)
+    this.heartbeatCount = 0;
   }
 
   /**
-   * Initialize the SSE connection with proper headers (ST-01)
+   * Initialize the SSE connection with proper headers (SSRK-117)
+   * Headers include:
+   * - Content-Type: text/event-stream
+   * - Cache-Control: no-cache
+   * - Connection: keep-alive
+   * - X-Accel-Buffering: no (disables NGINX buffering)
    */
   init() {
     try {
@@ -39,14 +46,13 @@ export class SSEWriter {
   }
 
   /**
-   * Safe write wrapper (ST-04)
+   * Safe write wrapper (SSRK-116)
    * Catches errors when writing to dead sockets
    */
   safeWrite(data) {
     if (!this.isOpen) return false;
     
     try {
-      // Check if socket is still writable
       if (this.res.writableEnded || this.res.destroyed) {
         this.handleWriteError(new Error('Socket closed'), 'write');
         return false;
@@ -61,7 +67,8 @@ export class SSEWriter {
   }
 
   /**
-   * Handle write errors (ST-04)
+   * Handle write errors (SSRK-116)
+   * Failed writes trigger cleanup for that connection
    */
   handleWriteError(err, operation) {
     if (this.isOpen) {
@@ -73,7 +80,6 @@ export class SSEWriter {
 
   /**
    * Send a raw event envelope
-   * @param {Object} envelope - Event envelope object
    */
   sendEvent(envelope) {
     if (!this.isOpen) return false;
@@ -84,6 +90,11 @@ export class SSEWriter {
     if (success) {
       this.eventCount++;
       this.lastEventId = envelope.event_id;
+      
+      // Track heartbeats separately (SSRK-118)
+      if (envelope.type === 'system.heartbeat') {
+        this.heartbeatCount++;
+      }
     }
     
     return success;
@@ -98,10 +109,13 @@ export class SSEWriter {
   }
 
   /**
-   * Send a heartbeat event (ST-05)
+   * Send a heartbeat event
    */
-  sendHeartbeat() {
-    const envelope = createHeartbeat();
+  sendHeartbeat(options = {}) {
+    const envelope = createHeartbeat({
+      ...options,
+      connection_id: this.connectionId,
+    });
     return this.sendEvent(envelope);
   }
 
@@ -135,7 +149,6 @@ export class SSEWriter {
   close(reason = 'stream_ended') {
     if (!this.isOpen) return;
     
-    // Try to send close event
     try {
       this.sendControl('close', { reason });
     } catch (err) {
@@ -157,7 +170,6 @@ export class SSEWriter {
    * Check if connection is still open
    */
   get connected() {
-    // Also check underlying socket
     if (this.isOpen && (this.res.writableEnded || this.res.destroyed)) {
       this.isOpen = false;
     }
@@ -171,6 +183,7 @@ export class SSEWriter {
     return {
       connectionId: this.connectionId,
       eventCount: this.eventCount,
+      heartbeatCount: this.heartbeatCount,
       lastEventId: this.lastEventId,
       isOpen: this.isOpen,
     };

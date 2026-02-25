@@ -1,19 +1,19 @@
 /**
- * SSE Reference Server (US-05, US-06)
- * Implements connection lifecycle handling
+ * SSE Reference Server (US-11)
+ * Implements heartbeat/keepalive events
  */
 import Fastify from 'fastify';
 import { config } from './config.js';
 import { createSSEWriter } from './sse-writer.js';
 import { createStreamManager } from './stream-manager.js';
 import { getRegistry } from './connection-registry.js';
-import { Defaults, DisconnectReason } from '../../shared/src/index.js';
+import { Defaults, DisconnectReason, SSEHeaders } from '../../shared/src/index.js';
 
 const fastify = Fastify({
   logger: config.nodeEnv === 'development',
 });
 
-// Initialize connection registry (ST-01)
+// Initialize connection registry
 const registry = getRegistry({
   maxConnections: config.connections.maxConcurrent,
   onConnectionChange: (event, id, count) => {
@@ -23,6 +23,13 @@ const registry = getRegistry({
 
 // In-memory event buffer for replay
 const eventBuffer = [];
+
+// Server-wide heartbeat metrics (SSRK-118)
+const heartbeatMetrics = {
+  totalSent: 0,
+  totalFailed: 0,
+  lastHeartbeatTime: null,
+};
 
 function addToBuffer(event) {
   eventBuffer.push({ ...event, bufferedAt: Date.now() });
@@ -38,7 +45,6 @@ function getEventsAfter(lastEventId) {
   return eventBuffer.slice(index + 1);
 }
 
-// Server state for graceful shutdown (ST-05)
 let isShuttingDown = false;
 
 /**
@@ -50,6 +56,7 @@ fastify.get('/health', async (request, reply) => {
     timestamp: new Date().toISOString(),
     connections: registry.size,
     bufferedEvents: eventBuffer.length,
+    heartbeatMetrics, // SSRK-118
   };
 });
 
@@ -70,16 +77,16 @@ fastify.get('/info', async (request, reply) => {
     stats: {
       ...registry.getStats(),
       bufferedEvents: eventBuffer.length,
+      heartbeatMetrics,
       isShuttingDown,
     },
   };
 });
 
 /**
- * SSE Stream endpoint (ST-01)
+ * SSE Stream endpoint (SSRK-117: correct headers)
  */
 fastify.get('/stream', async (request, reply) => {
-  // Reject new connections during shutdown (ST-05)
   if (isShuttingDown) {
     reply.code(503).send({
       error: 'Service Unavailable',
@@ -91,14 +98,12 @@ fastify.get('/stream', async (request, reply) => {
 
   const connectionId = `conn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  // Try to register connection (ST-01, ST-06)
   const registration = registry.register(connectionId, {
     ip: request.ip,
     userAgent: request.headers['user-agent'],
   });
 
   if (!registration.success) {
-    // Max connections exceeded (ST-06)
     reply.code(503).send({
       error: 'Service Unavailable',
       message: 'Too many connections',
@@ -108,7 +113,7 @@ fastify.get('/stream', async (request, reply) => {
     return;
   }
 
-  // Create SSE writer with error handling (ST-04)
+  // Create SSE writer with correct headers (SSRK-117)
   const writer = createSSEWriter(reply.raw, {
     connectionId,
     onClose: (reason) => {
@@ -120,30 +125,54 @@ fastify.get('/stream', async (request, reply) => {
     },
   });
 
-  // Initialize SSE headers
   writer.init();
 
-  // Create stream manager
+  // Create stream manager with heartbeat (SSRK-115)
   const stream = createStreamManager(writer, {
+    connectionId,
     tickInterval: config.sse.tickInterval,
     heartbeatInterval: config.sse.heartbeatInterval,
+    debug: config.log.heartbeats,
+    onHeartbeatError: (info) => {
+      // Heartbeat write failed (SSRK-116)
+      heartbeatMetrics.totalFailed++;
+      fastify.log.warn({ connectionId, ...info }, 'Heartbeat failed');
+      cleanupConnection(DisconnectReason.NETWORK_ERROR);
+    },
   });
 
-  // Cleanup function (ST-03)
+  // Track heartbeats (SSRK-118)
+  const originalSendEvent = writer.sendEvent.bind(writer);
+  writer.sendEvent = (envelope) => {
+    const success = originalSendEvent(envelope);
+    
+    if (success) {
+      addToBuffer(envelope);
+      registry.touch(connectionId);
+      
+      // Update heartbeat metrics (SSRK-118)
+      if (envelope.type === 'system.heartbeat') {
+        heartbeatMetrics.totalSent++;
+        heartbeatMetrics.lastHeartbeatTime = Date.now();
+        
+        if (config.log.heartbeats) {
+          fastify.log.debug({ connectionId, type: envelope.type }, 'Heartbeat sent');
+        }
+      }
+    }
+    
+    return success;
+  };
+
   const cleanupConnection = (reason) => {
-    if (!registry.has(connectionId)) return; // Already cleaned up
+    if (!registry.has(connectionId)) return;
     
     stream.stop();
     writer.close(reason);
     registry.unregister(connectionId, reason);
   };
 
-  // Register cleanup function (ST-03)
   registry.setCleanup(connectionId, cleanupConnection);
-
-  // Register timers for cleanup tracking (ST-02)
-  registry.addTimer(connectionId, stream.tickTimer);
-  registry.addTimer(connectionId, stream.heartbeatTimer);
 
   // Handle Last-Event-ID for resume
   const lastEventId = request.headers['last-event-id'] || request.query.last_event_id;
@@ -158,23 +187,15 @@ fastify.get('/stream', async (request, reply) => {
       });
     } else if (missedEvents.length > 0) {
       for (const event of missedEvents) {
-        writer.sendEvent(event);
+        originalSendEvent(event);
       }
     }
   }
 
-  // Intercept events to add to buffer
-  const originalSendEvent = writer.sendEvent.bind(writer);
-  writer.sendEvent = (envelope) => {
-    addToBuffer(envelope);
-    registry.touch(connectionId);
-    return originalSendEvent(envelope);
-  };
-
-  // Start streaming
+  // Start streaming (includes heartbeat scheduler)
   stream.start();
 
-  // Handle client disconnect (ST-02)
+  // Handle client disconnect
   request.raw.on('close', () => {
     cleanupConnection(DisconnectReason.CLIENT_CLOSE);
   });
@@ -184,17 +205,15 @@ fastify.get('/stream', async (request, reply) => {
     cleanupConnection(DisconnectReason.NETWORK_ERROR);
   });
 
-  // Handle aborted request
   request.raw.on('aborted', () => {
     cleanupConnection(DisconnectReason.CLIENT_ABORT);
   });
 
-  // Hijack response to keep connection open
   reply.hijack();
 });
 
 /**
- * Graceful shutdown handler (ST-05)
+ * Graceful shutdown
  */
 async function gracefulShutdown(signal) {
   if (isShuttingDown) return;
@@ -203,23 +222,20 @@ async function gracefulShutdown(signal) {
   console.log(`\n[SHUTDOWN] Signal ${signal} received, starting graceful shutdown...`);
   console.log(`[SHUTDOWN] Active connections: ${registry.size}`);
   
-  // Stop accepting new connections
   fastify.server.unref();
   
-  // Give existing connections time to finish
   const gracePeriod = config.shutdown.gracePeriodMs;
   console.log(`[SHUTDOWN] Waiting ${gracePeriod}ms for connections to close...`);
   
   await new Promise(resolve => setTimeout(resolve, gracePeriod));
   
-  // Force close remaining connections
   console.log(`[SHUTDOWN] Closing ${registry.size} remaining connections...`);
   registry.closeAll(DisconnectReason.SERVER_SHUTDOWN);
   
-  // Close server
   await fastify.close();
   
   console.log('[SHUTDOWN] Server stopped');
+  console.log(`[SHUTDOWN] Heartbeat stats: sent=${heartbeatMetrics.totalSent}, failed=${heartbeatMetrics.totalFailed}`);
   process.exit(0);
 }
 

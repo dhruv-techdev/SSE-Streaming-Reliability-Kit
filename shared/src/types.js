@@ -14,7 +14,7 @@
  * - retry: Client retry interval in ms
  */
 
-// Reserved event types (SSRK-57)
+// Reserved event types (SSRK-57, SSRK-113)
 export const ReservedEventTypes = {
   HEARTBEAT: 'system.heartbeat',
   CONTROL_OPEN: 'control.open',
@@ -28,6 +28,24 @@ export const ReservedEventTypes = {
 export const RESERVED_PREFIXES = ['system.', 'control.'];
 
 /**
+ * Heartbeat event payload schema (SSRK-113)
+ * 
+ * The heartbeat event is used to:
+ * 1. Keep connections alive through proxies/load balancers
+ * 2. Allow clients to detect connection liveness
+ * 
+ * Payload fields (all optional):
+ * - server_time: Server timestamp for clock sync
+ * - interval_ms: Current heartbeat interval (informational)
+ * - connection_id: Server's identifier for this connection
+ */
+export const HeartbeatPayloadSchema = {
+  server_time: 'string (ISO 8601)',
+  interval_ms: 'number',
+  connection_id: 'string',
+};
+
+/**
  * Validates that a type is not using reserved prefixes
  * Domain events should use: domain.<entity>.<action>
  * Example: domain.user.created, domain.order.updated
@@ -35,6 +53,20 @@ export const RESERVED_PREFIXES = ['system.', 'control.'];
 export function isDomainEventType(type) {
   return !RESERVED_PREFIXES.some(prefix => type.startsWith(prefix));
 }
+
+/**
+ * Check if event type is a heartbeat
+ */
+export function isHeartbeatEvent(type) {
+  return type === ReservedEventTypes.HEARTBEAT;
+}
+
+/**
+ * @typedef {Object} HeartbeatPayload
+ * @property {string} [server_time] - Server timestamp (ISO 8601)
+ * @property {number} [interval_ms] - Heartbeat interval in ms
+ * @property {string} [connection_id] - Connection identifier
+ */
 
 /**
  * @typedef {Object} EventEnvelope

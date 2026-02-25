@@ -3,7 +3,7 @@ import { validateEvent } from './schema.js';
 import { ReservedEventTypes } from './types.js';
 
 /**
- * Creates a new event envelope (SSRK-58)
+ * Creates a new event envelope
  * @param {string} type - Event type
  * @param {Object} payload - Event payload
  * @param {Object} [options] - Optional fields
@@ -17,7 +17,6 @@ export function createEnvelope(type, payload = {}, options = {}) {
     payload,
   };
 
-  // Add optional fields if provided
   if (options.stream_id) envelope.stream_id = options.stream_id;
   if (options.correlation_id) envelope.correlation_id = options.correlation_id;
   if (options.sequence !== undefined) envelope.sequence = options.sequence;
@@ -27,12 +26,33 @@ export function createEnvelope(type, payload = {}, options = {}) {
 }
 
 /**
- * Creates a heartbeat event
+ * Creates a heartbeat event (SSRK-113)
+ * 
+ * Heartbeat envelope includes:
+ * - type: 'system.heartbeat'
+ * - payload: { server_time, interval_ms, connection_id }
+ * 
  * @param {Object} [options] - Optional fields
+ * @param {number} [options.interval_ms] - Current heartbeat interval
+ * @param {string} [options.connection_id] - Connection identifier
  * @returns {Object} Heartbeat event envelope
  */
 export function createHeartbeat(options = {}) {
-  return createEnvelope(ReservedEventTypes.HEARTBEAT, {}, options);
+  const payload = {
+    server_time: new Date().toISOString(),
+  };
+  
+  // Include interval if provided (informational for client)
+  if (options.interval_ms !== undefined) {
+    payload.interval_ms = options.interval_ms;
+  }
+  
+  // Include connection_id if provided
+  if (options.connection_id) {
+    payload.connection_id = options.connection_id;
+  }
+
+  return createEnvelope(ReservedEventTypes.HEARTBEAT, payload, options);
 }
 
 /**
@@ -84,21 +104,15 @@ export function createDomainEvent(entity, action, payload, options = {}) {
 export function encodeSSE(envelope) {
   const lines = [];
   
-  // Add event ID for client reconnection
   lines.push(`id: ${envelope.event_id}`);
-  
-  // Add event type
   lines.push(`event: ${envelope.type}`);
   
-  // Add retry if specified
   if (envelope.retry !== undefined) {
     lines.push(`retry: ${envelope.retry}`);
   }
   
-  // Add data (JSON stringified envelope)
   lines.push(`data: ${JSON.stringify(envelope)}`);
   
-  // End with double newline
   return lines.join('\n') + '\n\n';
 }
 
