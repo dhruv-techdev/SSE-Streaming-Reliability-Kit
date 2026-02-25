@@ -1,7 +1,7 @@
 /**
- * SSE Client Connector (US-07 through US-15)
+ * SSE Client Connector (US-07 through US-16)
  * With state machine, retry policy, liveness detection, Last-Event-ID resume,
- * and cannot-resume fallback handling
+ * cannot-resume fallback handling, and duplicate detection
  */
 import http from 'http';
 import https from 'https';
@@ -23,16 +23,14 @@ import { RetryPolicy, DEFAULT_RETRY_POLICY } from './retry-policy.js';
 import { ReconnectManager, RECONNECTABLE_REASONS, GiveUpReason } from './reconnect-manager.js';
 import { LivenessMonitor, createLivenessMonitor } from './liveness-monitor.js';
 import { EventIdStore, createEventIdStore, MemoryStorage } from './event-id-store.js';
+import { DedupeCache, createDedupeCache, DEDUPE_DEFAULTS } from './dedupe-cache.js';
 
 /**
- * Fallback behavior options (SSRK-143)
+ * Fallback behavior options
  */
 export const CannotResumeFallback = {
-  // Reconnect without Last-Event-ID (fresh stream)
   START_FRESH: 'start_fresh',
-  // Close connection and don't reconnect
   CLOSE: 'close',
-  // Let the application decide via callback
   CALLBACK: 'callback',
 };
 
@@ -71,8 +69,13 @@ export class SSEConnector {
       eventIdStorage: options.eventIdStorage || null,
       streamId: options.streamId || 'default',
       
-      // Cannot-resume fallback behavior (SSRK-143)
+      // Cannot-resume fallback behavior
       cannotResumeFallback: options.cannotResumeFallback || CannotResumeFallback.START_FRESH,
+      
+      // Dedupe configuration (SSRK-149)
+      enableDedupe: options.enableDedupe !== false,
+      dedupeMaxSize: options.dedupeMaxSize || DEDUPE_DEFAULTS.MAX_SIZE,
+      dedupeTtlMs: options.dedupeTtlMs || DEDUPE_DEFAULTS.TTL_MS,
       
       // Auto-reconnect
       autoReconnect: options.autoReconnect !== false,
@@ -101,8 +104,11 @@ export class SSEConnector {
       // Resume attempt callback
       onResumeAttempt: options.onResumeAttempt || null,
       
-      // Cannot resume callback (SSRK-142)
+      // Cannot resume callback
       onCannotResume: options.onCannotResume || null,
+      
+      // Duplicate callback (SSRK-150)
+      onDuplicate: options.onDuplicate || null,
       
       // Reserved event handlers
       onHeartbeat: options.onHeartbeat || null,
@@ -147,6 +153,14 @@ export class SSEConnector {
       debug: this.options.debug,
     });
 
+    // Dedupe cache (SSRK-147)
+    this._dedupeCache = createDedupeCache({
+      maxSize: this.options.dedupeMaxSize,
+      ttlMs: this.options.dedupeTtlMs,
+      debug: this.options.debug,
+      onDuplicate: (info) => this._handleDuplicate(info),
+    });
+
     // Connection state
     this.request = null;
     this.response = null;
@@ -154,9 +168,10 @@ export class SSEConnector {
     this._stopped = false;
     this._startFreshOnNextConnect = false;
     
-    // Stats (SSRK-144)
+    // Stats
     this.stats = {
       eventsReceived: 0,
+      eventsProcessed: 0,
       bytesReceived: 0,
       connectedAt: null,
       disconnectedAt: null,
@@ -164,6 +179,7 @@ export class SSEConnector {
       livenessFailures: 0,
       resumeAttempts: 0,
       cannotResumeCount: 0,
+      duplicatesIgnored: 0,
     };
   }
 
@@ -179,6 +195,25 @@ export class SSEConnector {
    */
   set lastEventId(value) {
     this._eventIdStore.set(value);
+  }
+
+  /**
+   * Handle duplicate detection (SSRK-150)
+   */
+  _handleDuplicate(info) {
+    this.stats.duplicatesIgnored++;
+    
+    if (this.options.debug) {
+      console.log(`[CONNECTOR] Duplicate ignored: ${info.event_id}`);
+    }
+    
+    if (this.options.onDuplicate) {
+      this.options.onDuplicate({
+        event_id: info.event_id,
+        type: info.type,
+        totalDuplicates: this.stats.duplicatesIgnored,
+      });
+    }
   }
 
   /**
@@ -281,7 +316,7 @@ export class SSEConnector {
   }
 
   /**
-   * Handle cannot-resume signal from server (SSRK-142)
+   * Handle cannot-resume signal from server
    */
   _handleCannotResume(envelope) {
     this.stats.cannotResumeCount++;
@@ -292,11 +327,9 @@ export class SSEConnector {
       console.log(`[CONNECTOR] Cannot resume: ${code} - ${reason}`);
     }
 
-    // Handle fallback behavior before callback so callback sees updated state (SSRK-143)
     const fallback = this.options.cannotResumeFallback;
 
     if (fallback === CannotResumeFallback.START_FRESH) {
-      // Clear lastEventId before callback so callback observes cleared state
       this._eventIdStore.clear();
 
       if (this.options.debug) {
@@ -304,7 +337,6 @@ export class SSEConnector {
       }
     }
 
-    // Fire callback (SSRK-142)
     if (this.options.onCannotResume) {
       this.options.onCannotResume({
         lastEventId: requestedId,
@@ -315,13 +347,11 @@ export class SSEConnector {
     }
 
     if (fallback === CannotResumeFallback.CLOSE) {
-      // Close connection
       if (this.options.debug) {
         console.log(`[CONNECTOR] Fallback: close - stopping connection`);
       }
       this.stop();
     }
-    // CALLBACK fallback - let the onCannotResume handler decide
   }
 
   /**
@@ -361,7 +391,7 @@ export class SSEConnector {
   }
 
   /**
-   * Start fresh - clear lastEventId and connect (SSRK-143)
+   * Start fresh - clear lastEventId and connect
    */
   startFresh() {
     if (this.options.debug) {
@@ -391,8 +421,6 @@ export class SSEConnector {
       },
     };
 
-    // Attach Last-Event-ID header on connect/reconnect
-    // Skip if _startFreshOnNextConnect is set (SSRK-143)
     const lastEventId = this._startFreshOnNextConnect ? null : this._eventIdStore.get();
     this._startFreshOnNextConnect = false;
     
@@ -404,7 +432,6 @@ export class SSEConnector {
         console.log(`[CONNECTOR] Attaching Last-Event-ID: ${lastEventId}`);
       }
       
-      // Fire resume attempt callback
       if (this.options.onResumeAttempt) {
         this.options.onResumeAttempt({
           lastEventId,
@@ -455,14 +482,12 @@ export class SSEConnector {
       return;
     }
 
-    // Connection successful - reset retry state
     this._reconnectManager.reset();
     
     this._stateMachine.connected();
     this.stats.connectedAt = Date.now();
     this._resetTimeout();
 
-    // Start liveness monitor
     if (this.options.enableLivenessCheck) {
       this._livenessMonitor.reset();
       this._livenessMonitor.start();
@@ -514,7 +539,6 @@ export class SSEConnector {
 
     const parsed = parseSSEChunk(raw);
     
-    // Update lastEventId from SSE id field
     if (parsed.id) {
       this._eventIdStore.set(parsed.id);
     }
@@ -547,6 +571,14 @@ export class SSEConnector {
     // Record event for liveness
     this._livenessMonitor.recordEvent();
     
+    // Check for duplicate (SSRK-146, SSRK-147)
+    if (this.options.enableDedupe && this._dedupeCache.isDuplicate(envelope)) {
+      // Duplicate detected - skip processing
+      return;
+    }
+    
+    this.stats.eventsProcessed++;
+    
     // Update lastEventId from envelope
     this._eventIdStore.updateFromEvent(envelope);
     
@@ -559,7 +591,6 @@ export class SSEConnector {
   _routeEvent(envelope) {
     const { type } = envelope;
 
-    // Heartbeat
     if (type === ReservedEventTypes.HEARTBEAT) {
       this._livenessMonitor.recordHeartbeat();
       
@@ -578,10 +609,8 @@ export class SSEConnector {
       return;
     }
 
-    // Handle cannot_resume control event (SSRK-142)
     if (type === 'control.cannot_resume') {
       this._handleCannotResume(envelope);
-      // Still pass to onControl if set
       if (this.options.onControl) {
         this.options.onControl(envelope);
       }
@@ -756,6 +785,13 @@ export class SSEConnector {
   }
 
   /**
+   * Clear dedupe cache
+   */
+  clearDedupeCache() {
+    this._dedupeCache.clear();
+  }
+
+  /**
    * Alias for stop()
    */
   disconnect() {
@@ -805,6 +841,13 @@ export class SSEConnector {
   }
 
   /**
+   * Get dedupe cache instance
+   */
+  getDedupeCache() {
+    return this._dedupeCache;
+  }
+
+  /**
    * Check if given up
    */
   get hasGivenUp() {
@@ -825,6 +868,7 @@ export class SSEConnector {
       stateMachine: this._stateMachine.getStats(),
       reconnect: this._reconnectManager.getStats(),
       liveness: this._livenessMonitor.getStats(),
+      dedupe: this._dedupeCache.getStats(),
     };
   }
 
@@ -851,6 +895,7 @@ export class SSEConnector {
     this._reconnectManager.setDebug(enabled);
     this._livenessMonitor.setDebug(enabled);
     this._eventIdStore.setDebug(enabled);
+    this._dedupeCache.setDebug(enabled);
   }
 }
 
@@ -869,6 +914,7 @@ export { RetryPolicy, RetryPolicies, DEFAULT_RETRY_POLICY } from './retry-policy
 export { ReconnectManager, RECONNECTABLE_REASONS, GiveUpReason } from './reconnect-manager.js';
 export { LivenessMonitor, createLivenessMonitor } from './liveness-monitor.js';
 export { EventIdStore, createEventIdStore, MemoryStorage, FileStorage, LocalStorageAdapter } from './event-id-store.js';
+export { DedupeCache, createDedupeCache, DEDUPE_DEFAULTS } from './dedupe-cache.js';
 export { CannotResumeFallback };
 
 export default SSEConnector;

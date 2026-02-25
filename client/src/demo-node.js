@@ -1,6 +1,6 @@
 /**
- * SSE Client Demo (US-15)
- * Shows cannot-resume handling
+ * SSE Client Demo (US-16)
+ * Shows dedupe functionality
  */
 import { connectSSE, ConnectionState, CannotResumeFallback } from './sse-connector.js';
 
@@ -19,6 +19,7 @@ const stats = {
   livenessFailures: 0,
   resumeAttempts: 0,
   cannotResumeCount: 0,
+  duplicatesIgnored: 0,
   retries: [],
   stateChanges: [],
   gaveUp: false,
@@ -52,8 +53,13 @@ const connector = connectSSE(url, {
   persistLastEventId: false,
   streamId: 'demo-stream',
   
-  // Cannot-resume fallback behavior (SSRK-143)
+  // Cannot-resume fallback behavior
   cannotResumeFallback: CannotResumeFallback.START_FRESH,
+  
+  // Dedupe configuration (SSRK-149)
+  enableDedupe: true,
+  dedupeMaxSize: 1000,
+  dedupeTtlMs: 0, // No TTL
   
   onStateChange: ({ previous, current, reason }) => {
     stats.stateChanges.push({ from: previous, to: current, reason });
@@ -85,12 +91,21 @@ const connector = connectSSE(url, {
     });
   },
 
-  // Cannot resume callback (SSRK-142)
   onCannotResume: ({ lastEventId, reason, serverSuggestedAction }) => {
     stats.cannotResumeCount++;
     log('CANNOT_RESUME', `⚠️ Cannot resume from ${lastEventId}`, {
       reason,
       action: serverSuggestedAction,
+    });
+  },
+
+  // Duplicate callback (SSRK-150)
+  onDuplicate: ({ event_id, type, totalDuplicates }) => {
+    stats.duplicatesIgnored++;
+    log('DUPLICATE', `��� Ignored duplicate`, {
+      event_id: event_id.slice(0, 12) + '...',
+      type,
+      total: totalDuplicates,
     });
   },
 
@@ -145,8 +160,9 @@ const connector = connectSSE(url, {
 });
 
 log('CONNECT', `Connecting to ${url}...`);
-log('CONFIG', 'Cannot-resume fallback: START_FRESH', {
-  streamId: 'demo-stream',
+log('CONFIG', 'Dedupe enabled', {
+  maxSize: 1000,
+  ttlMs: 0,
 });
 
 setTimeout(() => {
@@ -159,7 +175,7 @@ setTimeout(() => {
 function printSummary() {
   const elapsed = Date.now() - stats.startTime;
   const connectorStats = connector.getStats();
-  const livenessStats = connectorStats.liveness;
+  const dedupeStats = connectorStats.dedupe;
 
   console.log(`
 ╔═══════════════════════════════════════════════════════════╗
@@ -167,21 +183,25 @@ function printSummary() {
 ╠═══════════════════════════════════════════════════════════╣
 ║  Duration:          ${String(elapsed + 'ms').padEnd(36)}║
 ║  Final State:       ${String(connector.getState()).padEnd(36)}║
-║  Events Received:   ${String(stats.eventsReceived).padEnd(36)}║
+║  Events Received:   ${String(connectorStats.eventsReceived).padEnd(36)}║
+║  Events Processed:  ${String(connectorStats.eventsProcessed).padEnd(36)}║
 ║  Tick Events:       ${String(stats.ticksReceived).padEnd(36)}║
 ║  Heartbeats:        ${String(stats.heartbeatsReceived).padEnd(36)}║
 ║  Control Events:    ${String(stats.controlEvents).padEnd(36)}║
 ║  Errors:            ${String(stats.errors).padEnd(36)}║
-║  Reconnect Count:   ${String(connectorStats.reconnectCount).padEnd(36)}║
 ╠═══════════════════════════════════════════════════════════╣
-║  RESUME & CANNOT-RESUME:                                   ║
+║  DEDUPE CACHE:                                             ║
+║    Cache Size:      ${String(dedupeStats.size).padEnd(36)}║
+║    Max Size:        ${String(dedupeStats.maxSize).padEnd(36)}║
+║    Total Checked:   ${String(dedupeStats.totalChecked).padEnd(36)}║
+║    Total Added:     ${String(dedupeStats.totalAdded).padEnd(36)}║
+║    Duplicates:      ${String(dedupeStats.totalDuplicates).padEnd(36)}║
+║    Evicted:         ${String(dedupeStats.totalEvicted).padEnd(36)}║
+╠═══════════════════════════════════════════════════════════╣
+║  RESUME & RECONNECT:                                       ║
+║    Reconnect Count: ${String(connectorStats.reconnectCount).padEnd(36)}║
 ║    Resume Attempts: ${String(connectorStats.resumeAttempts).padEnd(36)}║
 ║    Cannot Resume:   ${String(connectorStats.cannotResumeCount).padEnd(36)}║
-║    Last Event ID:   ${String(connector.lastEventId ? connector.lastEventId.slice(0, 20) + '...' : 'none').padEnd(36)}║
-╠═══════════════════════════════════════════════════════════╣
-║  LIVENESS DETECTION:                                       ║
-║    HB Received:     ${String(livenessStats.heartbeatsReceived).padEnd(36)}║
-║    Failures:        ${String(livenessStats.failureCount).padEnd(36)}║
 ╠═══════════════════════════════════════════════════════════╣
 ║  STATE HISTORY:                                            ║`);
   
