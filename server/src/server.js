@@ -1,6 +1,6 @@
 /**
- * SSE Reference Server (US-14)
- * Implements server replay strategy for resume
+ * SSE Reference Server (US-15)
+ * Implements explicit "cannot resume" behavior
  */
 import Fastify from 'fastify';
 import { config } from './config.js';
@@ -8,7 +8,7 @@ import { createSSEWriter } from './sse-writer.js';
 import { createStreamManager } from './stream-manager.js';
 import { getRegistry } from './connection-registry.js';
 import { createReplayBuffer } from './replay-buffer.js';
-import { Defaults, DisconnectReason, SSEHeaders } from '../../shared/src/index.js';
+import { Defaults, DisconnectReason, CannotResumeReason, SSEHeaders } from '../../shared/src/index.js';
 
 const fastify = Fastify({
   logger: config.nodeEnv === 'development',
@@ -22,7 +22,7 @@ const registry = getRegistry({
   },
 });
 
-// Global replay buffer (SSRK-135)
+// Global replay buffer
 const replayBuffer = createReplayBuffer({
   maxSize: config.sse.maxBufferSize,
   maxReplayBatch: config.sse.maxReplayBatch,
@@ -30,7 +30,7 @@ const replayBuffer = createReplayBuffer({
   debug: config.log.replay,
 });
 
-// Server-wide metrics
+// Server-wide metrics (SSRK-144)
 const serverMetrics = {
   heartbeatsSent: 0,
   heartbeatsFailed: 0,
@@ -40,9 +40,23 @@ const serverMetrics = {
   replaysFailed: 0,
   replayEventsSent: 0,
   replaysTruncated: 0,
+  // Cannot resume metrics (SSRK-144)
+  cannotResumeCount: 0,
+  cannotResumeReasons: {},
 };
 
 let isShuttingDown = false;
+
+/**
+ * Track cannot-resume event (SSRK-144)
+ */
+function trackCannotResume(reason, connectionId, details = {}) {
+  serverMetrics.cannotResumeCount++;
+  serverMetrics.cannotResumeReasons[reason] = (serverMetrics.cannotResumeReasons[reason] || 0) + 1;
+  
+  // Structured log entry (SSRK-144)
+  console.log(`[CANNOT-RESUME] [${connectionId}] reason=${reason}`, JSON.stringify(details));
+}
 
 /**
  * Health check endpoint
@@ -111,7 +125,7 @@ fastify.get('/stream', async (request, reply) => {
     return;
   }
 
-  // Read Last-Event-ID from request (SSRK-134)
+  // Read Last-Event-ID from request
   const lastEventId = request.headers['last-event-id'] || request.query.last_event_id || null;
   
   if (lastEventId) {
@@ -182,8 +196,9 @@ fastify.get('/stream', async (request, reply) => {
 
   registry.setCleanup(connectionId, cleanupConnection);
 
-  // Handle replay if Last-Event-ID provided (SSRK-136, SSRK-138)
+  // Handle replay if Last-Event-ID provided
   let replayPerformed = false;
+  let cannotResume = false;
   
   if (lastEventId) {
     serverMetrics.replaysAttempted++;
@@ -191,23 +206,30 @@ fastify.get('/stream', async (request, reply) => {
     const replayResult = replayBuffer.getEventsAfter(lastEventId);
     
     if (!replayResult.found) {
-      // Event not in buffer - too old (SSRK-136)
+      // Cannot resume - event not found (SSRK-140, SSRK-141)
+      cannotResume = true;
       serverMetrics.replaysFailed++;
       
-      if (config.log.replay) {
-        console.log(`[REPLAY] [${connectionId}] Event not found: ${lastEventId} (reason: ${replayResult.reason})`);
-      }
+      const reason = CannotResumeReason.EVENT_NOT_FOUND;
+      trackCannotResume(reason, connectionId, {
+        requestedId: lastEventId,
+        oldestAvailable: replayBuffer.oldestEventId,
+        newestAvailable: replayBuffer.newestEventId,
+        bufferSize: replayBuffer.size,
+      });
       
-      // Send control.reconnect to inform client
-      writer.sendControl('reconnect', {
+      // Send cannot_resume control event (SSRK-141)
+      writer.sendControl('cannot_resume', {
+        code: reason,
         reason: 'events_expired',
         message: 'Requested events are no longer available in buffer',
         requestedId: lastEventId,
         oldestAvailable: replayBuffer.oldestEventId,
         newestAvailable: replayBuffer.newestEventId,
+        action: 'start_fresh', // Suggested client action (SSRK-143)
       });
     } else if (replayResult.events.length > 0) {
-      // Replay events (SSRK-136, SSRK-137)
+      // Replay events
       serverMetrics.replaysSucceeded++;
       replayPerformed = true;
       
@@ -218,7 +240,7 @@ fastify.get('/stream', async (request, reply) => {
           console.log(`[REPLAY] [${connectionId}] Truncated: ${replayResult.totalAvailable} → ${replayResult.events.length}`);
         }
         
-        // Inform client that replay was truncated (SSRK-138)
+        // Inform client that replay was truncated
         writer.sendControl('replay_start', {
           reason: 'replay_truncated',
           message: 'Too many events to replay, sending partial batch',
@@ -235,9 +257,9 @@ fastify.get('/stream', async (request, reply) => {
         });
       }
       
-      // Send replayed events in order (SSRK-137)
+      // Send replayed events in order
       for (const event of replayResult.events) {
-        originalSendEvent(event); // Use original to avoid re-buffering
+        originalSendEvent(event);
         serverMetrics.replayEventsSent++;
       }
       

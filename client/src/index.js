@@ -19,6 +19,7 @@ export {
   MemoryStorage,
   FileStorage,
   LocalStorageAdapter,
+  CannotResumeFallback,
 } from './sse-connector.js';
 
 export { StateMachine, createStateMachine } from './state-machine.js';
