@@ -1,20 +1,35 @@
 /**
- * Stream Manager (SSRK-70, SSRK-72)
- * Manages tick events and heartbeats for SSE streams
+ * Stream Manager (SSRK-115)
+ * Manages tick events and integrates heartbeat scheduler
  */
 import { config } from './config.js';
+import { createHeartbeatScheduler } from './heartbeat-scheduler.js';
 
 export class StreamManager {
   constructor(sseWriter, options = {}) {
     this.writer = sseWriter;
+    this.connectionId = options.connectionId || sseWriter.connectionId || 'unknown';
     this.tickInterval = options.tickInterval || config.sse.tickInterval;
     this.heartbeatInterval = options.heartbeatInterval || config.sse.heartbeatInterval;
+    this.debug = options.debug || config.log.heartbeats;
+    
+    // Event callbacks
+    this.onHeartbeatError = options.onHeartbeatError || null;
     
     this.tickTimer = null;
-    this.heartbeatTimer = null;
     this.sequence = 0;
     this.lastActivityTime = Date.now();
     this.isRunning = false;
+    
+    // Per-connection heartbeat scheduler (SSRK-115)
+    this._heartbeatScheduler = createHeartbeatScheduler({
+      intervalMs: this.heartbeatInterval,
+      connectionId: this.connectionId,
+      writer: this.writer,
+      debug: this.debug,
+      onHeartbeat: (info) => this._onHeartbeat(info),
+      onError: (info) => this._onHeartbeatError(info),
+    });
   }
 
   /**
@@ -36,12 +51,29 @@ export class StreamManager {
       this.sendTick();
     }, this.tickInterval);
 
-    // Start heartbeat interval
-    this.heartbeatTimer = setInterval(() => {
-      this.checkHeartbeat();
-    }, this.heartbeatInterval);
+    // Start heartbeat scheduler (SSRK-115)
+    this._heartbeatScheduler.start();
 
     return this;
+  }
+
+  /**
+   * Handle heartbeat sent
+   */
+  _onHeartbeat(info) {
+    this.lastActivityTime = Date.now();
+  }
+
+  /**
+   * Handle heartbeat error (SSRK-116)
+   */
+  _onHeartbeatError(info) {
+    // Connection is dead - stop everything
+    this.stop();
+    
+    if (this.onHeartbeatError) {
+      this.onHeartbeatError(info);
+    }
   }
 
   /**
@@ -66,22 +98,6 @@ export class StreamManager {
   }
 
   /**
-   * Check if heartbeat is needed
-   */
-  checkHeartbeat() {
-    if (!this.writer.connected) {
-      this.stop();
-      return;
-    }
-
-    const timeSinceActivity = Date.now() - this.lastActivityTime;
-    if (timeSinceActivity >= this.heartbeatInterval) {
-      this.writer.sendHeartbeat();
-      this.lastActivityTime = Date.now();
-    }
-  }
-
-  /**
    * Send a custom event
    */
   sendEvent(entity, action, payload, options = {}) {
@@ -102,14 +118,14 @@ export class StreamManager {
    */
   stop() {
     this.isRunning = false;
+    
     if (this.tickTimer) {
       clearInterval(this.tickTimer);
       this.tickTimer = null;
     }
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
-    }
+    
+    // Stop heartbeat scheduler
+    this._heartbeatScheduler.stop();
   }
 
   /**
@@ -117,11 +133,20 @@ export class StreamManager {
    */
   get stats() {
     return {
+      connectionId: this.connectionId,
       sequence: this.sequence,
       isRunning: this.isRunning,
       lastActivityTime: this.lastActivityTime,
+      heartbeat: this._heartbeatScheduler.getStats(),
       writerStats: this.writer.stats,
     };
+  }
+
+  /**
+   * Get heartbeat scheduler (for testing/inspection)
+   */
+  get heartbeatScheduler() {
+    return this._heartbeatScheduler;
   }
 }
 

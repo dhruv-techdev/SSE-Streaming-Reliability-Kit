@@ -1,9 +1,16 @@
 // Types and constants
-export { ReservedEventTypes, RESERVED_PREFIXES, isDomainEventType } from './types.js';
+export { 
+  ReservedEventTypes, 
+  RESERVED_PREFIXES, 
+  isDomainEventType,
+  isHeartbeatEvent,
+  HeartbeatPayloadSchema,
+} from './types.js';
 
 // Protocol constants
 export {
   Defaults,
+  ConfigKeys,
   SSEHeaders,
   DisconnectReason,
   ClientState,

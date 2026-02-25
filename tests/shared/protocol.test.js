@@ -53,7 +53,7 @@ describe('SSE Protocol Compliance', () => {
       
       expect(result.valid).toBe(true);
       expect(heartbeat.type).toBe('system.heartbeat');
-      expect(heartbeat.payload).toEqual({});
+      expect(heartbeat.payload).toHaveProperty('server_time');
     });
   });
 
