@@ -22,6 +22,10 @@ export {
   DedupeCache,
   createDedupeCache,
   DEDUPE_DEFAULTS,
+  OrderingGuard,
+  createOrderingGuard,
+  OrderingRule,
+  OutOfOrderPolicy,
   CannotResumeFallback,
 } from './sse-connector.js';
 

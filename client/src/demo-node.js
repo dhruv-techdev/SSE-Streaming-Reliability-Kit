@@ -1,8 +1,8 @@
 /**
- * SSE Client Demo (US-16)
- * Shows dedupe functionality
+ * SSE Client Demo (US-17)
+ * Shows ordering enforcement
  */
-import { connectSSE, ConnectionState, CannotResumeFallback } from './sse-connector.js';
+import { connectSSE, ConnectionState, CannotResumeFallback, OrderingRule, OutOfOrderPolicy } from './sse-connector.js';
 
 const host = process.env.HOST || 'localhost';
 const port = process.env.PORT || 3000;
@@ -20,6 +20,7 @@ const stats = {
   resumeAttempts: 0,
   cannotResumeCount: 0,
   duplicatesIgnored: 0,
+  outOfOrderDropped: 0,
   retries: [],
   stateChanges: [],
   gaveUp: false,
@@ -56,10 +57,14 @@ const connector = connectSSE(url, {
   // Cannot-resume fallback behavior
   cannotResumeFallback: CannotResumeFallback.START_FRESH,
   
-  // Dedupe configuration (SSRK-149)
+  // Dedupe configuration
   enableDedupe: true,
   dedupeMaxSize: 1000,
-  dedupeTtlMs: 0, // No TTL
+  
+  // Ordering configuration (SSRK-152)
+  enableOrdering: true,
+  orderingRule: OrderingRule.SEQUENCE,
+  outOfOrderPolicy: OutOfOrderPolicy.DROP_WITH_CALLBACK,
   
   onStateChange: ({ previous, current, reason }) => {
     stats.stateChanges.push({ from: previous, to: current, reason });
@@ -86,26 +91,27 @@ const connector = connectSSE(url, {
     stats.resumeAttempts++;
     log('RESUME', `��� Attempting resume`, {
       lastEventId: lastEventId.slice(0, 20) + '...',
-      attempt,
-      reconnectCount,
     });
   },
 
   onCannotResume: ({ lastEventId, reason, serverSuggestedAction }) => {
     stats.cannotResumeCount++;
-    log('CANNOT_RESUME', `⚠️ Cannot resume from ${lastEventId}`, {
-      reason,
-      action: serverSuggestedAction,
-    });
+    log('CANNOT_RESUME', `⚠️ Cannot resume`, { reason });
   },
 
-  // Duplicate callback (SSRK-150)
   onDuplicate: ({ event_id, type, totalDuplicates }) => {
     stats.duplicatesIgnored++;
-    log('DUPLICATE', `��� Ignored duplicate`, {
+    log('DUPLICATE', `��� Ignored duplicate`, { event_id: event_id.slice(0, 12) + '...' });
+  },
+
+  // Out-of-order callback (SSRK-154)
+  onOutOfOrder: ({ event_id, type, sequence, reason, lastAcceptedSequence }) => {
+    stats.outOfOrderDropped++;
+    log('OUT_OF_ORDER', `⏭️ Dropped out-of-order`, {
       event_id: event_id.slice(0, 12) + '...',
-      type,
-      total: totalDuplicates,
+      sequence,
+      lastAccepted: lastAcceptedSequence,
+      reason,
     });
   },
 
@@ -134,10 +140,7 @@ const connector = connectSSE(url, {
 
   onHeartbeat: (envelope) => {
     stats.heartbeatsReceived++;
-    const { payload } = envelope;
-    log('HEARTBEAT', `♥ #${stats.heartbeatsReceived}`, {
-      server_time: payload.server_time,
-    });
+    log('HEARTBEAT', `♥ #${stats.heartbeatsReceived}`);
   },
 
   onError: (error) => {
@@ -145,24 +148,17 @@ const connector = connectSSE(url, {
     log('ERROR', `[${error.type}] ${error.message}`, { source: error.source });
   },
 
-  onClose: ({ reason, willReconnect, retryIn, attempt, elapsedMs, state, lastEventId }) => {
-    log('CLOSE', `Connection closed: ${reason}`, { 
-      willReconnect, 
-      retryIn, 
-      attempt,
-      elapsedMs,
-      state,
-      lastEventId: lastEventId ? lastEventId.slice(0, 12) + '...' : 'none',
-    });
+  onClose: ({ reason, willReconnect, retryIn, state }) => {
+    log('CLOSE', `Connection closed: ${reason}`, { willReconnect, retryIn, state });
   },
 
   autoReconnect: true,
 });
 
 log('CONNECT', `Connecting to ${url}...`);
-log('CONFIG', 'Dedupe enabled', {
-  maxSize: 1000,
-  ttlMs: 0,
+log('CONFIG', 'Ordering enforcement enabled', {
+  rule: OrderingRule.SEQUENCE,
+  policy: OutOfOrderPolicy.DROP_WITH_CALLBACK,
 });
 
 setTimeout(() => {
@@ -175,7 +171,7 @@ setTimeout(() => {
 function printSummary() {
   const elapsed = Date.now() - stats.startTime;
   const connectorStats = connector.getStats();
-  const dedupeStats = connectorStats.dedupe;
+  const orderingStats = connectorStats.ordering;
 
   console.log(`
 ╔═══════════════════════════════════════════════════════════╗
@@ -190,18 +186,16 @@ function printSummary() {
 ║  Control Events:    ${String(stats.controlEvents).padEnd(36)}║
 ║  Errors:            ${String(stats.errors).padEnd(36)}║
 ╠═══════════════════════════════════════════════════════════╣
-║  DEDUPE CACHE:                                             ║
-║    Cache Size:      ${String(dedupeStats.size).padEnd(36)}║
-║    Max Size:        ${String(dedupeStats.maxSize).padEnd(36)}║
-║    Total Checked:   ${String(dedupeStats.totalChecked).padEnd(36)}║
-║    Total Added:     ${String(dedupeStats.totalAdded).padEnd(36)}║
-║    Duplicates:      ${String(dedupeStats.totalDuplicates).padEnd(36)}║
-║    Evicted:         ${String(dedupeStats.totalEvicted).padEnd(36)}║
+║  ORDERING ENFORCEMENT:                                     ║
+║    Rule:            ${String(orderingStats.orderingRule).padEnd(36)}║
+║    Total Checked:   ${String(orderingStats.totalChecked).padEnd(36)}║
+║    Total Accepted:  ${String(orderingStats.totalAccepted).padEnd(36)}║
+║    Total Dropped:   ${String(orderingStats.totalDropped).padEnd(36)}║
+║    Last Seq:        ${String(orderingStats.lastAcceptedSequence || 'N/A').padEnd(36)}║
 ╠═══════════════════════════════════════════════════════════╣
-║  RESUME & RECONNECT:                                       ║
-║    Reconnect Count: ${String(connectorStats.reconnectCount).padEnd(36)}║
-║    Resume Attempts: ${String(connectorStats.resumeAttempts).padEnd(36)}║
-║    Cannot Resume:   ${String(connectorStats.cannotResumeCount).padEnd(36)}║
+║  DEDUPE CACHE:                                             ║
+║    Duplicates:      ${String(connectorStats.dedupe.totalDuplicates).padEnd(36)}║
+║    Cache Size:      ${String(connectorStats.dedupe.size).padEnd(36)}║
 ╠═══════════════════════════════════════════════════════════╣
 ║  STATE HISTORY:                                            ║`);
   
