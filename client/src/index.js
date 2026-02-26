@@ -39,3 +39,4 @@ export {
 export { StateMachine, createStateMachine } from './state-machine.js';
 export { createRetryPolicy } from './retry-policy.js';
 export { createReconnectManager } from './reconnect-manager.js';
+export { createClientLogger, getClientLogger } from './client-logger.js';

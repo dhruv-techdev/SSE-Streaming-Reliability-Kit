@@ -1,6 +1,6 @@
 /**
- * SSE Reference Server (US-18)
- * Implements core reliability metrics
+ * SSE Reference Server (US-20)
+ * Implements structured logging for stream lifecycle
  */
 import Fastify from 'fastify';
 import { config } from './config.js';
@@ -9,20 +9,30 @@ import { createStreamManager } from './stream-manager.js';
 import { getRegistry } from './connection-registry.js';
 import { createReplayBuffer } from './replay-buffer.js';
 import { getMetrics } from './metrics.js';
-import { Defaults, DisconnectReason, CannotResumeReason, SSEHeaders } from '../../shared/src/index.js';
+import { getServerLogger } from './server-logger.js';
+import { Defaults, DisconnectReason, CannotResumeReason, SSEHeaders, LogLevel } from '../../shared/src/index.js';
 
 const fastify = Fastify({
-  logger: config.nodeEnv === 'development',
+  logger: false, // We use our own structured logger
 });
 
-// Initialize metrics registry (SSRK-158)
+// Initialize structured logger (SSRK-175)
+const logger = getServerLogger({
+  level: config.log.level,
+  enabled: true,
+});
+
+// Initialize metrics registry
 const metrics = getMetrics();
 
 // Initialize connection registry
 const registry = getRegistry({
   maxConnections: config.connections.maxConcurrent,
   onConnectionChange: (event, id, count) => {
-    fastify.log.info({ event, connectionId: id, activeConnections: count }, 'Connection change');
+    logger.debug('registry.change', `Connection ${event}: ${id}`, {
+      connection_id: id,
+      active_connections: count,
+    });
   },
 });
 
@@ -50,7 +60,7 @@ fastify.get('/health', async (request, reply) => {
 });
 
 /**
- * Prometheus metrics endpoint (SSRK-158)
+ * Prometheus metrics endpoint
  */
 fastify.get('/metrics', async (request, reply) => {
   reply.header('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
@@ -96,14 +106,24 @@ fastify.get('/stream', async (request, reply) => {
 
   const connectionId = `conn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+  // Log stream connect attempt (SSRK-177)
+  logger.streamConnect(connectionId, {
+    ip: request.ip,
+    user_agent: request.headers['user-agent'],
+  });
+
   const registration = registry.register(connectionId, {
     ip: request.ip,
     userAgent: request.headers['user-agent'],
   });
 
   if (!registration.success) {
-    // Increment rejected connections counter (SSRK-162)
     metrics.incRejectedConnections();
+    
+    // Log stream rejection (SSRK-177)
+    logger.streamReject(connectionId, registration.reason, {
+      ip: request.ip,
+    });
     
     reply.code(503).send({
       error: 'Service Unavailable',
@@ -114,27 +134,28 @@ fastify.get('/stream', async (request, reply) => {
     return;
   }
 
-  // Increment streams opened counter (SSRK-160)
   metrics.incStreamsOpened();
-  
-  // Increment active streams gauge (SSRK-159)
   metrics.incActiveStreams();
 
   // Read Last-Event-ID from request
   const lastEventId = request.headers['last-event-id'] || request.query.last_event_id || null;
   
   if (lastEventId) {
-    fastify.log.info({ connectionId, lastEventId }, 'Resume requested with Last-Event-ID');
+    // Log resume attempt (SSRK-179)
+    logger.resumeAttempt(connectionId, lastEventId);
   }
 
   // Create SSE writer
   const writer = createSSEWriter(reply.raw, {
     connectionId,
     onClose: (reason) => {
-      fastify.log.info({ connectionId, reason }, 'Writer closed');
+      logger.debug('writer.close', `Writer closed: ${connectionId}`, { reason });
     },
     onError: (err, operation) => {
-      fastify.log.error({ connectionId, operation, error: err.message }, 'Writer error');
+      logger.error('writer.error', `Writer error: ${connectionId}`, {
+        operation,
+        error: err.message,
+      });
       cleanupConnection(DisconnectReason.NETWORK_ERROR);
     },
   });
@@ -149,7 +170,7 @@ fastify.get('/stream', async (request, reply) => {
     debug: config.log.heartbeats,
     onHeartbeatError: (info) => {
       metrics.incHeartbeatsFailed();
-      fastify.log.warn({ connectionId, ...info }, 'Heartbeat failed');
+      logger.heartbeatFailed(connectionId, info.error);
       cleanupConnection(DisconnectReason.NETWORK_ERROR);
     },
   });
@@ -160,10 +181,8 @@ fastify.get('/stream', async (request, reply) => {
     const success = originalSendEvent(envelope);
     
     if (success) {
-      // Increment events sent counter
       metrics.incEventsSent();
       
-      // Add to replay buffer (skip heartbeats)
       if (envelope.type !== 'system.heartbeat') {
         replayBuffer.add(envelope);
         metrics.incEventsBuffered();
@@ -171,9 +190,11 @@ fastify.get('/stream', async (request, reply) => {
       
       registry.touch(connectionId);
       
-      // Track heartbeats (SSRK-163)
       if (envelope.type === 'system.heartbeat') {
         metrics.incHeartbeatsSent();
+        if (config.log.heartbeats) {
+          logger.heartbeatSent(connectionId);
+        }
       }
     }
     
@@ -187,11 +208,13 @@ fastify.get('/stream', async (request, reply) => {
     writer.close(reason);
     registry.unregister(connectionId, reason);
     
-    // Decrement active streams gauge (SSRK-159)
     metrics.decActiveStreams();
-    
-    // Increment disconnects counter with reason (SSRK-161)
     metrics.incDisconnects(reason);
+    
+    // Log stream close (SSRK-177)
+    logger.streamClose(connectionId, reason, {
+      duration_ms: Date.now() - registration.connectedAt,
+    });
   };
 
   registry.setCleanup(connectionId, cleanupConnection);
@@ -203,9 +226,14 @@ fastify.get('/stream', async (request, reply) => {
     const replayResult = replayBuffer.getEventsAfter(lastEventId);
     
     if (!replayResult.found) {
-      // Cannot resume - event not found
       metrics.incReplaysFailed();
       metrics.incCannotResume(CannotResumeReason.EVENT_NOT_FOUND);
+      
+      // Log cannot-resume (SSRK-179)
+      logger.resumeCannotResume(connectionId, CannotResumeReason.EVENT_NOT_FOUND, {
+        requested_id: lastEventId,
+        oldest_available: replayBuffer.oldestEventId,
+      });
       
       writer.sendControl('cannot_resume', {
         code: CannotResumeReason.EVENT_NOT_FOUND,
@@ -217,10 +245,12 @@ fastify.get('/stream', async (request, reply) => {
         action: 'start_fresh',
       });
     } else if (replayResult.events.length > 0) {
-      // Replay events
       metrics.incReplaysSucceeded();
       
       if (replayResult.truncated) {
+        // Log replay truncated
+        logger.replayTruncated(connectionId, replayResult.totalAvailable, replayResult.events.length);
+        
         writer.sendControl('replay_start', {
           reason: 'replay_truncated',
           message: 'Too many events to replay, sending partial batch',
@@ -230,6 +260,8 @@ fastify.get('/stream', async (request, reply) => {
           maxReplayBatch: config.sse.maxReplayBatch,
         });
       } else {
+        logger.replayStart(connectionId, replayResult.events.length);
+        
         writer.sendControl('replay_start', {
           reason: 'replay_started',
           requestedId: lastEventId,
@@ -237,12 +269,15 @@ fastify.get('/stream', async (request, reply) => {
         });
       }
       
-      // Send replayed events in order
       for (const event of replayResult.events) {
         originalSendEvent(event);
       }
       
       metrics.incReplayEventsSent(replayResult.events.length);
+      
+      // Log resume success (SSRK-179)
+      logger.resumeSuccess(connectionId, replayResult.events.length);
+      logger.replayEnd(connectionId, replayResult.events.length);
       
       writer.sendControl('replay_end', {
         reason: 'replay_complete',
@@ -250,8 +285,8 @@ fastify.get('/stream', async (request, reply) => {
         truncated: replayResult.truncated,
       });
     } else {
-      // No events to replay (client is caught up)
       metrics.incReplaysSucceeded();
+      logger.resumeSuccess(connectionId, 0);
       
       writer.sendControl('replay_start', {
         reason: 'no_replay_needed',
@@ -260,6 +295,11 @@ fastify.get('/stream', async (request, reply) => {
       });
     }
   }
+
+  // Log stream open (SSRK-177)
+  logger.streamOpen(connectionId, {
+    had_resume: !!lastEventId,
+  });
 
   // Start live streaming
   stream.start();
@@ -270,7 +310,7 @@ fastify.get('/stream', async (request, reply) => {
   });
 
   request.raw.on('error', (err) => {
-    fastify.log.error({ connectionId, error: err.message }, 'Request error');
+    logger.error('request.error', `Request error: ${connectionId}`, { error: err.message });
     cleanupConnection(DisconnectReason.NETWORK_ERROR);
   });
 
@@ -304,24 +344,24 @@ async function gracefulShutdown(signal) {
   if (isShuttingDown) return;
   isShuttingDown = true;
   
-  console.log(`\n[SHUTDOWN] Signal ${signal} received, starting graceful shutdown...`);
-  console.log(`[SHUTDOWN] Active connections: ${registry.size}`);
-  console.log(`[SHUTDOWN] Buffer size: ${replayBuffer.size}`);
+  logger.info('server.shutdown', `Shutdown signal received: ${signal}`, {
+    active_connections: registry.size,
+    buffer_size: replayBuffer.size,
+  });
   
   fastify.server.unref();
   
   const gracePeriod = config.shutdown.gracePeriodMs;
-  console.log(`[SHUTDOWN] Waiting ${gracePeriod}ms for connections to close...`);
+  logger.info('server.shutdown', `Waiting ${gracePeriod}ms for connections to close`);
   
   await new Promise(resolve => setTimeout(resolve, gracePeriod));
   
-  console.log(`[SHUTDOWN] Closing ${registry.size} remaining connections...`);
+  logger.info('server.shutdown', `Closing ${registry.size} remaining connections`);
   registry.closeAll(DisconnectReason.SERVER_SHUTDOWN);
   
   await fastify.close();
   
-  console.log('[SHUTDOWN] Server stopped');
-  console.log(`[SHUTDOWN] Final metrics:\n${metrics.toPrometheus()}`);
+  logger.info('server.shutdown', 'Server stopped');
   process.exit(0);
 }
 
@@ -334,6 +374,16 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 const start = async () => {
   try {
     await fastify.listen({ port: config.port, host: config.host });
+    
+    logger.info('server.start', `Server started`, {
+      host: config.host,
+      port: config.port,
+      tick_interval: config.sse.tickInterval,
+      heartbeat_interval: config.sse.heartbeatInterval,
+      max_buffer_size: config.sse.maxBufferSize,
+      max_connections: config.connections.maxConcurrent,
+    });
+    
     console.log(`
 ╔═══════════════════════════════════════════════════════════╗
 ║           SSE Streaming Reliability Kit v1.0.0            ║
@@ -341,18 +391,17 @@ const start = async () => {
 ║  Server:     http://${config.host}:${config.port}                        ║
 ║  Health:     http://${config.host}:${config.port}/health                 ║
 ║  Metrics:    http://${config.host}:${config.port}/metrics                ║
-║  Info:       http://${config.host}:${config.port}/info                   ║
 ║  Stream:     http://${config.host}:${config.port}/stream                 ║
 ╠═══════════════════════════════════════════════════════════╣
+║  Log Level:          ${String(config.log.level).padEnd(6)}                           ║
 ║  Tick Interval:      ${String(config.sse.tickInterval).padEnd(6)}ms                        ║
 ║  Heartbeat Interval: ${String(config.sse.heartbeatInterval).padEnd(6)}ms                        ║
 ║  Max Buffer Size:    ${String(config.sse.maxBufferSize).padEnd(6)}                          ║
-║  Max Replay Batch:   ${String(config.sse.maxReplayBatch).padEnd(6)}                          ║
 ║  Max Connections:    ${String(config.connections.maxConcurrent).padEnd(6)}                          ║
 ╚═══════════════════════════════════════════════════════════╝
     `);
   } catch (err) {
-    fastify.log.error(err);
+    logger.error('server.start', 'Failed to start server', { error: err.message });
     process.exit(1);
   }
 };

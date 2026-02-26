@@ -35,3 +35,12 @@ export {
   decodeSSE,
   parseSSEChunk,
 } from './envelope.js';
+
+// Structured logging (SSRK-174)
+export {
+  Logger,
+  createLogger,
+  LogLevel,
+  LogComponent,
+  LogEvent,
+} from './logger.js';
