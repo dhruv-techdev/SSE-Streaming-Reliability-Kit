@@ -26,6 +26,13 @@ export {
   createOrderingGuard,
   OrderingRule,
   OutOfOrderPolicy,
+  ClientMetrics,
+  createClientMetrics,
+  MetricsSink,
+  ConsoleMetricsSink,
+  InMemoryMetricsSink,
+  createConsoleSink,
+  createInMemorySink,
   CannotResumeFallback,
 } from './sse-connector.js';
 

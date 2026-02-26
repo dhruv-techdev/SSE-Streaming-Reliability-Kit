@@ -1,7 +1,8 @@
 /**
- * SSE Client Connector (US-07 through US-17)
+ * SSE Client Connector (US-07 through US-19)
  * With state machine, retry policy, liveness detection, Last-Event-ID resume,
- * cannot-resume fallback handling, duplicate detection, and ordering enforcement
+ * cannot-resume fallback handling, duplicate detection, ordering enforcement,
+ * and client metrics
  */
 import http from 'http';
 import https from 'https';
@@ -25,6 +26,7 @@ import { LivenessMonitor, createLivenessMonitor } from './liveness-monitor.js';
 import { EventIdStore, createEventIdStore, MemoryStorage } from './event-id-store.js';
 import { DedupeCache, createDedupeCache, DEDUPE_DEFAULTS } from './dedupe-cache.js';
 import { OrderingGuard, createOrderingGuard, OrderingRule, OutOfOrderPolicy } from './ordering-guard.js';
+import { ClientMetrics, createClientMetrics, MetricsSink, ConsoleMetricsSink, InMemoryMetricsSink, createConsoleSink, createInMemorySink } from './client-metrics.js';
 
 /**
  * Fallback behavior options
@@ -78,13 +80,18 @@ export class SSEConnector {
       dedupeMaxSize: options.dedupeMaxSize || DEDUPE_DEFAULTS.MAX_SIZE,
       dedupeTtlMs: options.dedupeTtlMs || DEDUPE_DEFAULTS.TTL_MS,
       
-      // Ordering configuration (SSRK-152)
+      // Ordering configuration
       enableOrdering: options.enableOrdering !== false,
       orderingRule: options.orderingRule || OrderingRule.SEQUENCE,
       outOfOrderPolicy: options.outOfOrderPolicy || OutOfOrderPolicy.DROP_WITH_CALLBACK,
       
-      // Idempotency guardrail hook (SSRK-155)
+      // Idempotency guardrail hook
       shouldProcess: options.shouldProcess || null,
+      
+      // Metrics configuration (SSRK-166)
+      enableMetrics: options.enableMetrics !== false,
+      metricsSink: options.metricsSink || null,
+      trackEventLag: options.trackEventLag !== false,
       
       // Auto-reconnect
       autoReconnect: options.autoReconnect !== false,
@@ -119,7 +126,7 @@ export class SSEConnector {
       // Duplicate callback
       onDuplicate: options.onDuplicate || null,
       
-      // Out-of-order callback (SSRK-154)
+      // Out-of-order callback
       onOutOfOrder: options.onOutOfOrder || null,
       
       // Reserved event handlers
@@ -173,7 +180,7 @@ export class SSEConnector {
       onDuplicate: (info) => this._handleDuplicate(info),
     });
 
-    // Ordering guard (SSRK-152, SSRK-153, SSRK-154)
+    // Ordering guard
     this._orderingGuard = createOrderingGuard({
       orderingRule: this.options.orderingRule,
       outOfOrderPolicy: this.options.outOfOrderPolicy,
@@ -182,12 +189,18 @@ export class SSEConnector {
       onOutOfOrder: (info) => this._handleOutOfOrder(info),
     });
 
+    // Client metrics (SSRK-166)
+    this._metrics = createClientMetrics({
+      sink: this.options.metricsSink || new MetricsSink(),
+    });
+
     // Connection state
     this.request = null;
     this.response = null;
     this.timeoutTimer = null;
     this._stopped = false;
     this._startFreshOnNextConnect = false;
+    this._resumeAttemptPending = false;
     
     // Stats
     this.stats = {
@@ -199,6 +212,8 @@ export class SSEConnector {
       reconnectCount: 0,
       livenessFailures: 0,
       resumeAttempts: 0,
+      resumeSuccesses: 0,
+      resumeFailures: 0,
       cannotResumeCount: 0,
       duplicatesIgnored: 0,
       outOfOrderDropped: 0,
@@ -220,10 +235,15 @@ export class SSEConnector {
   }
 
   /**
-   * Handle duplicate detection
+   * Handle duplicate detection (SSRK-169)
    */
   _handleDuplicate(info) {
     this.stats.duplicatesIgnored++;
+    
+    // Increment metrics counter (SSRK-169)
+    if (this.options.enableMetrics) {
+      this._metrics.incDuplicateEvents(info.type);
+    }
     
     if (this.options.debug) {
       console.log(`[CONNECTOR] Duplicate ignored: ${info.event_id}`);
@@ -239,10 +259,15 @@ export class SSEConnector {
   }
 
   /**
-   * Handle out-of-order event (SSRK-154)
+   * Handle out-of-order event
    */
   _handleOutOfOrder(info) {
     this.stats.outOfOrderDropped++;
+    
+    // Increment metrics counter
+    if (this.options.enableMetrics) {
+      this._metrics.incOutOfOrderEvents();
+    }
     
     if (this.options.debug) {
       console.log(`[CONNECTOR] Out-of-order dropped: ${info.event_id} (${info.reason})`);
@@ -268,17 +293,27 @@ export class SSEConnector {
       console.log(`[CONNECTOR] State: ${event.previous} → ${event.current} (${event.reason})`);
     }
     
+    // Update metrics gauge
+    if (this.options.enableMetrics) {
+      this._metrics.setConnectionState(event.current);
+    }
+    
     if (this.options.onStateChange) {
       this.options.onStateChange(event);
     }
   }
 
   /**
-   * Handle retry scheduled
+   * Handle retry scheduled (SSRK-167)
    */
   _handleRetryScheduled(info) {
     if (this.options.debug) {
       console.log(`[CONNECTOR] Retry scheduled: attempt ${info.attempt} in ${info.delayMs}ms`);
+    }
+
+    // Increment reconnect attempts counter (SSRK-167)
+    if (this.options.enableMetrics) {
+      this._metrics.incReconnectAttempts(info.reason);
     }
 
     if (this.options.onRetry) {
@@ -337,12 +372,17 @@ export class SSEConnector {
   }
 
   /**
-   * Handle liveness failure
+   * Handle liveness failure (SSRK-171)
    */
   _handleLivenessFailure(info) {
     if (this._stopped) return;
     
     this.stats.livenessFailures++;
+    
+    // Increment liveness failures counter (SSRK-171)
+    if (this.options.enableMetrics) {
+      this._metrics.incLivenessFailures();
+    }
     
     if (this.options.debug) {
       console.log(`[CONNECTOR] Liveness failure: ${info.reason} (${info.elapsedMs}ms since last heartbeat)`);
@@ -360,12 +400,19 @@ export class SSEConnector {
   }
 
   /**
-   * Handle cannot-resume signal from server
+   * Handle cannot-resume signal from server (SSRK-168)
    */
   _handleCannotResume(envelope) {
     this.stats.cannotResumeCount++;
+    this.stats.resumeFailures++;
+    this._resumeAttemptPending = false;
     
     const { code, reason, requestedId, action } = envelope.payload;
+    
+    // Increment resume failure counter (SSRK-168)
+    if (this.options.enableMetrics) {
+      this._metrics.incResumeFailure(code || reason);
+    }
     
     if (this.options.debug) {
       console.log(`[CONNECTOR] Cannot resume: ${code} - ${reason}`);
@@ -375,12 +422,16 @@ export class SSEConnector {
 
     if (fallback === CannotResumeFallback.START_FRESH) {
       this._eventIdStore.clear();
-      // Reset ordering guard on fresh start
       this._orderingGuard.reset();
-
+      
       if (this.options.debug) {
         console.log(`[CONNECTOR] Fallback: start_fresh - cleared lastEventId and ordering markers`);
       }
+    } else if (fallback === CannotResumeFallback.CLOSE) {
+      if (this.options.debug) {
+        console.log(`[CONNECTOR] Fallback: close - stopping connection`);
+      }
+      this.stop();
     }
 
     if (this.options.onCannotResume) {
@@ -391,12 +442,20 @@ export class SSEConnector {
         payload: envelope.payload,
       });
     }
+  }
 
-    if (fallback === CannotResumeFallback.CLOSE) {
-      if (this.options.debug) {
-        console.log(`[CONNECTOR] Fallback: close - stopping connection`);
+  /**
+   * Handle resume success (SSRK-168)
+   */
+  _handleResumeSuccess() {
+    if (this._resumeAttemptPending) {
+      this.stats.resumeSuccesses++;
+      this._resumeAttemptPending = false;
+      
+      // Increment resume success counter (SSRK-168)
+      if (this.options.enableMetrics) {
+        this._metrics.incResumeSuccess();
       }
-      this.stop();
     }
   }
 
@@ -474,6 +533,7 @@ export class SSEConnector {
     if (lastEventId) {
       requestOptions.headers['Last-Event-ID'] = lastEventId;
       this.stats.resumeAttempts++;
+      this._resumeAttemptPending = true;
       
       if (this.options.debug) {
         console.log(`[CONNECTOR] Attaching Last-Event-ID: ${lastEventId}`);
@@ -534,6 +594,11 @@ export class SSEConnector {
     this._stateMachine.connected();
     this.stats.connectedAt = Date.now();
     this._resetTimeout();
+
+    // Increment connections opened counter
+    if (this.options.enableMetrics) {
+      this._metrics.incConnectionsOpened();
+    }
 
     if (this.options.enableLivenessCheck) {
       this._livenessMonitor.reset();
@@ -615,6 +680,11 @@ export class SSEConnector {
 
     this.stats.eventsReceived++;
     
+    // Increment events received counter
+    if (this.options.enableMetrics) {
+      this._metrics.incEventsReceived();
+    }
+    
     // Record event for liveness
     this._livenessMonitor.recordEvent();
     
@@ -623,16 +693,25 @@ export class SSEConnector {
       return;
     }
 
-    // Check ordering (SSRK-153, SSRK-154)
+    // Check ordering
     if (this.options.enableOrdering) {
       const orderCheck = this._orderingGuard.check(envelope);
       if (!orderCheck.accept) {
-        // Event dropped due to ordering violation
         return;
       }
     }
     
     this.stats.eventsProcessed++;
+    
+    // Increment events processed counter
+    if (this.options.enableMetrics) {
+      this._metrics.incEventsProcessed();
+      
+      // Record event lag (SSRK-170)
+      if (this.options.trackEventLag) {
+        this._metrics.recordEventLagFromEnvelope(envelope);
+      }
+    }
     
     // Update lastEventId from envelope
     this._eventIdStore.updateFromEvent(envelope);
@@ -666,6 +745,17 @@ export class SSEConnector {
 
     if (type === 'control.cannot_resume') {
       this._handleCannotResume(envelope);
+      if (this.options.onControl) {
+        this.options.onControl(envelope);
+      }
+      return;
+    }
+
+    // Handle replay_start/replay_end for resume success tracking (SSRK-168)
+    if (type === 'control.replay_start' || type === 'control.replay_end') {
+      if (type === 'control.replay_end') {
+        this._handleResumeSuccess();
+      }
       if (this.options.onControl) {
         this.options.onControl(envelope);
       }
@@ -741,6 +831,11 @@ export class SSEConnector {
     this._livenessMonitor.stop();
 
     this._stateMachine.error(reason);
+    
+    // Increment connections closed counter
+    if (this.options.enableMetrics) {
+      this._metrics.incConnectionsClosed(reason);
+    }
 
     this._attemptReconnect(reason);
   }
@@ -917,6 +1012,13 @@ export class SSEConnector {
   }
 
   /**
+   * Get client metrics instance
+   */
+  getMetrics() {
+    return this._metrics;
+  }
+
+  /**
    * Check if given up
    */
   get hasGivenUp() {
@@ -939,6 +1041,7 @@ export class SSEConnector {
       liveness: this._livenessMonitor.getStats(),
       dedupe: this._dedupeCache.getStats(),
       ordering: this._orderingGuard.getStats(),
+      lag: this._metrics.getLagStats(),
     };
   }
 
@@ -987,6 +1090,7 @@ export { LivenessMonitor, createLivenessMonitor } from './liveness-monitor.js';
 export { EventIdStore, createEventIdStore, MemoryStorage, FileStorage, LocalStorageAdapter } from './event-id-store.js';
 export { DedupeCache, createDedupeCache, DEDUPE_DEFAULTS } from './dedupe-cache.js';
 export { OrderingGuard, createOrderingGuard, OrderingRule, OutOfOrderPolicy } from './ordering-guard.js';
+export { ClientMetrics, createClientMetrics, MetricsSink, ConsoleMetricsSink, InMemoryMetricsSink, createConsoleSink, createInMemorySink } from './client-metrics.js';
 export { CannotResumeFallback };
 
 export default SSEConnector;

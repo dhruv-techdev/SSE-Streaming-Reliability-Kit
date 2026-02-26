@@ -248,7 +248,7 @@ describe('Server Replay Integration', () => {
       }).on('error', reject);
     });
 
-    expect(health.metrics.replaysAttempted).toBeGreaterThan(0);
+    expect(health.metrics.counters.replays_attempted_total).toBeGreaterThan(0);
   });
 
   it('should send replay_end control after replay (SSRK-139)', async () => {
