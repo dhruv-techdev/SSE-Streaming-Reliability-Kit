@@ -39,6 +39,12 @@ export const eventEnvelopeSchema = {
       maxLength: 100,
       description: 'Optional stream/channel identifier',
     },
+    trace_id: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 200,
+      description: 'Optional trace identifier for distributed tracing',
+    },
     correlation_id: {
       type: 'string',
       pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
