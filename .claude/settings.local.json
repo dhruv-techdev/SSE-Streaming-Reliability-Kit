@@ -4,7 +4,10 @@
       "Bash(npm install:*)",
       "Bash(npm run format:*)",
       "Bash(npm run lint:*)",
-      "Bash(npx vitest:*)"
+      "Bash(npx vitest:*)",
+      "Bash(grep -n \"CONTROL_OPEN\\\\|CONTROL_CLOSE\\\\|CONTROL_RECONNECT\" shared/src/*.js)",
+      "Bash(grep -n \"port.*308\\\\|PORT.*308\\\\|= 308\" tests/integration/*.test.js)",
+      "Bash(node -e \":*)"
     ]
   }
 }

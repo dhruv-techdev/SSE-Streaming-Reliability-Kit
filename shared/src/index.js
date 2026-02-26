@@ -36,7 +36,7 @@ export {
   parseSSEChunk,
 } from './envelope.js';
 
-// Structured logging (SSRK-174)
+// Structured logging
 export {
   Logger,
   createLogger,
@@ -44,3 +44,13 @@ export {
   LogComponent,
   LogEvent,
 } from './logger.js';
+
+// Correlation IDs (SSRK-183)
+export {
+  generateStreamId,
+  isValidStreamId,
+  isValidTraceId,
+  extractTraceId,
+  CorrelationContext,
+  createCorrelationContext,
+} from './correlation.js';

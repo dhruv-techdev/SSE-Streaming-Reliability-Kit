@@ -1,6 +1,6 @@
 /**
- * SSE Reference Server (US-20)
- * Implements structured logging for stream lifecycle
+ * SSE Reference Server (US-21)
+ * Implements correlation IDs across events and logs
  */
 import Fastify from 'fastify';
 import { config } from './config.js';
@@ -10,13 +10,22 @@ import { getRegistry } from './connection-registry.js';
 import { createReplayBuffer } from './replay-buffer.js';
 import { getMetrics } from './metrics.js';
 import { getServerLogger } from './server-logger.js';
-import { Defaults, DisconnectReason, CannotResumeReason, SSEHeaders, LogLevel } from '../../shared/src/index.js';
+import { 
+  Defaults, 
+  DisconnectReason, 
+  CannotResumeReason, 
+  SSEHeaders, 
+  LogLevel,
+  generateStreamId,
+  extractTraceId,
+  createCorrelationContext,
+} from '../../shared/src/index.js';
 
 const fastify = Fastify({
-  logger: false, // We use our own structured logger
+  logger: false,
 });
 
-// Initialize structured logger (SSRK-175)
+// Initialize structured logger
 const logger = getServerLogger({
   level: config.log.level,
   enabled: true,
@@ -104,10 +113,24 @@ fastify.get('/stream', async (request, reply) => {
     return;
   }
 
-  const connectionId = `conn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  // Generate stream_id for this connection (SSRK-184)
+  const streamId = generateStreamId();
+  
+  // Extract trace_id from request if provided (SSRK-187)
+  const traceId = extractTraceId(request);
+  
+  // Create correlation context
+  const correlation = createCorrelationContext({
+    streamId,
+    traceId,
+  });
 
-  // Log stream connect attempt (SSRK-177)
+  // Legacy connection ID (for backward compatibility)
+  const connectionId = streamId;
+
+  // Log stream connect attempt with correlation (SSRK-185)
   logger.streamConnect(connectionId, {
+    ...correlation.toLogFields(),
     ip: request.ip,
     user_agent: request.headers['user-agent'],
   });
@@ -115,13 +138,15 @@ fastify.get('/stream', async (request, reply) => {
   const registration = registry.register(connectionId, {
     ip: request.ip,
     userAgent: request.headers['user-agent'],
+    streamId,
+    traceId,
   });
 
   if (!registration.success) {
     metrics.incRejectedConnections();
     
-    // Log stream rejection (SSRK-177)
     logger.streamReject(connectionId, registration.reason, {
+      ...correlation.toLogFields(),
       ip: request.ip,
     });
     
@@ -141,18 +166,23 @@ fastify.get('/stream', async (request, reply) => {
   const lastEventId = request.headers['last-event-id'] || request.query.last_event_id || null;
   
   if (lastEventId) {
-    // Log resume attempt (SSRK-179)
-    logger.resumeAttempt(connectionId, lastEventId);
+    logger.resumeAttempt(connectionId, lastEventId, correlation.toLogFields());
   }
 
   // Create SSE writer
   const writer = createSSEWriter(reply.raw, {
     connectionId,
+    streamId,
+    traceId,
     onClose: (reason) => {
-      logger.debug('writer.close', `Writer closed: ${connectionId}`, { reason });
+      logger.debug('writer.close', `Writer closed: ${connectionId}`, {
+        ...correlation.toLogFields(),
+        reason,
+      });
     },
     onError: (err, operation) => {
       logger.error('writer.error', `Writer error: ${connectionId}`, {
+        ...correlation.toLogFields(),
         operation,
         error: err.message,
       });
@@ -162,29 +192,52 @@ fastify.get('/stream', async (request, reply) => {
 
   writer.init();
 
+  // Send control.open with stream_id (SSRK-186)
+  writer.sendControl('open', {
+    stream_id: streamId,
+    ...(traceId && { trace_id: traceId }),
+    server_time: new Date().toISOString(),
+    server_version: '1.0.0',
+    tick_interval: config.sse.tickInterval,
+    heartbeat_interval: config.sse.heartbeatInterval,
+  }, { retry: config.sse.retryTimeout });
+
   // Create stream manager with heartbeat
   const stream = createStreamManager(writer, {
     connectionId,
+    streamId,
+    traceId,
     tickInterval: config.sse.tickInterval,
     heartbeatInterval: config.sse.heartbeatInterval,
     debug: config.log.heartbeats,
     onHeartbeatError: (info) => {
       metrics.incHeartbeatsFailed();
-      logger.heartbeatFailed(connectionId, info.error);
+      logger.heartbeatFailed(connectionId, info.error, correlation.toLogFields());
       cleanupConnection(DisconnectReason.NETWORK_ERROR);
     },
   });
 
-  // Track events for replay and metrics
+  // Wrap sendEvent to add correlation (SSRK-186)
   const originalSendEvent = writer.sendEvent.bind(writer);
   writer.sendEvent = (envelope) => {
-    const success = originalSendEvent(envelope);
+    // Add stream_id to every event envelope (SSRK-186)
+    const enrichedEnvelope = {
+      ...envelope,
+      stream_id: streamId,
+    };
+    
+    // Add trace_id if present (SSRK-187)
+    if (traceId) {
+      enrichedEnvelope.trace_id = traceId;
+    }
+    
+    const success = originalSendEvent(enrichedEnvelope);
     
     if (success) {
       metrics.incEventsSent();
       
       if (envelope.type !== 'system.heartbeat') {
-        replayBuffer.add(envelope);
+        replayBuffer.add(enrichedEnvelope);
         metrics.incEventsBuffered();
       }
       
@@ -193,7 +246,7 @@ fastify.get('/stream', async (request, reply) => {
       if (envelope.type === 'system.heartbeat') {
         metrics.incHeartbeatsSent();
         if (config.log.heartbeats) {
-          logger.heartbeatSent(connectionId);
+          logger.heartbeatSent(connectionId, correlation.toLogFields());
         }
       }
     }
@@ -211,8 +264,8 @@ fastify.get('/stream', async (request, reply) => {
     metrics.decActiveStreams();
     metrics.incDisconnects(reason);
     
-    // Log stream close (SSRK-177)
     logger.streamClose(connectionId, reason, {
+      ...correlation.toLogFields(),
       duration_ms: Date.now() - registration.connectedAt,
     });
   };
@@ -229,8 +282,8 @@ fastify.get('/stream', async (request, reply) => {
       metrics.incReplaysFailed();
       metrics.incCannotResume(CannotResumeReason.EVENT_NOT_FOUND);
       
-      // Log cannot-resume (SSRK-179)
       logger.resumeCannotResume(connectionId, CannotResumeReason.EVENT_NOT_FOUND, {
+        ...correlation.toLogFields(),
         requested_id: lastEventId,
         oldest_available: replayBuffer.oldestEventId,
       });
@@ -243,13 +296,14 @@ fastify.get('/stream', async (request, reply) => {
         oldestAvailable: replayBuffer.oldestEventId,
         newestAvailable: replayBuffer.newestEventId,
         action: 'start_fresh',
+        stream_id: streamId,
+        trace_id: traceId,
       });
     } else if (replayResult.events.length > 0) {
       metrics.incReplaysSucceeded();
       
       if (replayResult.truncated) {
-        // Log replay truncated
-        logger.replayTruncated(connectionId, replayResult.totalAvailable, replayResult.events.length);
+        logger.replayTruncated(connectionId, replayResult.totalAvailable, replayResult.events.length, correlation.toLogFields());
         
         writer.sendControl('replay_start', {
           reason: 'replay_truncated',
@@ -258,14 +312,18 @@ fastify.get('/stream', async (request, reply) => {
           totalAvailable: replayResult.totalAvailable,
           sending: replayResult.events.length,
           maxReplayBatch: config.sse.maxReplayBatch,
+          stream_id: streamId,
+          trace_id: traceId,
         });
       } else {
-        logger.replayStart(connectionId, replayResult.events.length);
+        logger.replayStart(connectionId, replayResult.events.length, correlation.toLogFields());
         
         writer.sendControl('replay_start', {
           reason: 'replay_started',
           requestedId: lastEventId,
           eventCount: replayResult.events.length,
+          stream_id: streamId,
+          trace_id: traceId,
         });
       }
       
@@ -275,29 +333,32 @@ fastify.get('/stream', async (request, reply) => {
       
       metrics.incReplayEventsSent(replayResult.events.length);
       
-      // Log resume success (SSRK-179)
-      logger.resumeSuccess(connectionId, replayResult.events.length);
-      logger.replayEnd(connectionId, replayResult.events.length);
+      logger.resumeSuccess(connectionId, replayResult.events.length, correlation.toLogFields());
+      logger.replayEnd(connectionId, replayResult.events.length, correlation.toLogFields());
       
       writer.sendControl('replay_end', {
         reason: 'replay_complete',
         eventCount: replayResult.events.length,
         truncated: replayResult.truncated,
+        stream_id: streamId,
+        trace_id: traceId,
       });
     } else {
       metrics.incReplaysSucceeded();
-      logger.resumeSuccess(connectionId, 0);
+      logger.resumeSuccess(connectionId, 0, correlation.toLogFields());
       
       writer.sendControl('replay_start', {
         reason: 'no_replay_needed',
         requestedId: lastEventId,
         eventCount: 0,
+        stream_id: streamId,
+        trace_id: traceId,
       });
     }
   }
 
-  // Log stream open (SSRK-177)
   logger.streamOpen(connectionId, {
+    ...correlation.toLogFields(),
     had_resume: !!lastEventId,
   });
 
@@ -310,7 +371,10 @@ fastify.get('/stream', async (request, reply) => {
   });
 
   request.raw.on('error', (err) => {
-    logger.error('request.error', `Request error: ${connectionId}`, { error: err.message });
+    logger.error('request.error', `Request error: ${connectionId}`, {
+      ...correlation.toLogFields(),
+      error: err.message,
+    });
     cleanupConnection(DisconnectReason.NETWORK_ERROR);
   });
 

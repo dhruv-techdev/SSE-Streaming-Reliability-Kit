@@ -39,13 +39,6 @@ export class StreamManager {
     if (this.isRunning) return this;
     this.isRunning = true;
 
-    // Send initial control.open
-    this.writer.sendControl('open', {
-      server_version: '1.0.0',
-      tick_interval: this.tickInterval,
-      heartbeat_interval: this.heartbeatInterval,
-    }, { retry: config.sse.retryTimeout });
-
     // Start tick interval
     this.tickTimer = setInterval(() => {
       this.sendTick();
