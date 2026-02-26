@@ -171,3 +171,127 @@ annotations:
   summary: "High heartbeat failure rate"
   description: "More than 1% of heartbeats are failing"
 ```
+
+---
+
+# Client Metrics
+
+This section documents the metrics available in the SSE client.
+
+## Metrics Sink Interface
+
+The client uses a pluggable metrics sink interface (`MetricsSink`) that allows you to send metrics to any backend:
+```javascript
+import { connectSSE, createInMemorySink, createConsoleSink } from 'sse-streaming-reliability-kit/client';
+
+// In-memory sink (for testing)
+const sink = createInMemorySink();
+
+// Console sink (for development)
+const consoleSink = createConsoleSink({ enabled: true });
+
+const connector = connectSSE(url, {
+  metricsSink: sink,
+  trackEventLag: true,
+});
+```
+
+## Client Metrics Reference
+
+### Counters
+
+| Metric | Labels | Description |
+|--------|--------|-------------|
+| `sse_client_reconnect_attempts_total` | `reason` | Total reconnection attempts, labeled by disconnect reason |
+| `sse_client_resume_success_total` | - | Total successful resume operations (replay completed) |
+| `sse_client_resume_failure_total` | `reason` | Total failed resume operations (cannot-resume) |
+| `sse_client_duplicate_events_total` | `type` | Total duplicate events detected and dropped |
+| `sse_client_liveness_failures_total` | - | Total liveness check failures (missed heartbeats) |
+| `sse_client_events_received_total` | - | Total events received from server |
+| `sse_client_events_processed_total` | - | Total events processed (after dedup/ordering) |
+| `sse_client_out_of_order_events_total` | - | Total out-of-order events dropped |
+| `sse_client_connections_opened_total` | - | Total connections opened |
+| `sse_client_connections_closed_total` | `reason` | Total connections closed by reason |
+
+### Gauges
+
+| Metric | Labels | Description |
+|--------|--------|-------------|
+| `sse_client_connection_state` | `state` | Current connection state (0=idle, 1=connecting, 2=open, 3=retrying, 4=closed) |
+
+### Histograms
+
+| Metric | Description |
+|--------|-------------|
+| `sse_client_event_lag_ms` | Event delivery lag in milliseconds (now - event.ts) |
+
+## Event Lag Statistics
+
+The client tracks event lag internally and provides statistics:
+```javascript
+const stats = connector.getStats();
+
+console.log(stats.lag);
+// {
+//   count: 100,   // Number of samples
+//   min: 5,       // Minimum lag (ms)
+//   max: 150,     // Maximum lag (ms)
+//   avg: 25,      // Average lag (ms)
+//   p50: 20,      // 50th percentile
+//   p95: 80,      // 95th percentile
+//   p99: 120      // 99th percentile
+// }
+```
+
+## Custom Metrics Sink
+
+Implement your own sink to send metrics to Prometheus, StatsD, DataDog, etc.:
+```javascript
+import { MetricsSink } from 'sse-streaming-reliability-kit/client';
+
+class PrometheusMetricsSink extends MetricsSink {
+  constructor(registry) {
+    super();
+    this.counters = {};
+    this.gauges = {};
+    this.histograms = {};
+    this.registry = registry;
+  }
+
+  incCounter(name, value = 1, labels = {}) {
+    // Get or create counter in Prometheus registry
+    if (!this.counters[name]) {
+      this.counters[name] = new this.registry.Counter({
+        name,
+        help: `Counter ${name}`,
+        labelNames: Object.keys(labels),
+      });
+    }
+    this.counters[name].inc(labels, value);
+  }
+
+  setGauge(name, value, labels = {}) {
+    // Get or create gauge
+    if (!this.gauges[name]) {
+      this.gauges[name] = new this.registry.Gauge({
+        name,
+        help: `Gauge ${name}`,
+        labelNames: Object.keys(labels),
+      });
+    }
+    this.gauges[name].set(labels, value);
+  }
+
+  observe(name, value, labels = {}) {
+    // Get or create histogram
+    if (!this.histograms[name]) {
+      this.histograms[name] = new this.registry.Histogram({
+        name,
+        help: `Histogram ${name}`,
+        labelNames: Object.keys(labels),
+      });
+    }
+    this.histograms[name].observe(labels, value);
+  }
+}
+```
