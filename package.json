@@ -1,46 +1,22 @@
 {
   "name": "sse-streaming-reliability-kit",
   "version": "1.0.0",
-  "description": "Fix buffering and timeouts end-to-end | Stack - Fastify/H3 • EventSource • NGINX/Traefik presets • Playwright • Wireshark",
+  "description": "A comprehensive SSE streaming reliability toolkit",
   "type": "module",
-  "main": "index.js",
-  "exports": {
-    "./client": "./client/src/index.js",
-    "./shared": "./shared/src/index.js"
-  },
   "scripts": {
     "dev": "node server/src/server.js",
+    "server": "node server/src/server.js",
     "client:demo": "node client/src/demo-node.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:integration": "vitest run tests/integration",
-    "test:unit": "vitest run tests/shared tests/server tests/client",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "clean": "rm -rf node_modules dist build coverage .tsbuildinfo package-lock.json && npm install"
-  },
-  "keywords": ["sse", "server-sent-events", "streaming", "fastify", "reliability"],
-  "author": "",
-  "license": "ISC",
-  "directories": {
-    "doc": "docs",
-    "test": "tests"
-  },
-  "dependencies": {
-    "ajv": "^8.17.1",
-    "dotenv": "^16.5.0",
-    "fastify": "^5.4.0",
-    "uuid": "^11.1.0"
+    "test:coverage": "vitest run --coverage",
+    "harness": "node harness/src/cli.js",
+    "lint": "eslint ."
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.2",
-    "@types/node": "^25.2.2",
-    "eslint": "^9.39.2",
-    "prettier": "^3.8.1",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.9.3",
-    "vitest": "^3.2.3"
+    "vitest": "^1.6.0"
+  },
+  "dependencies": {
+    "fastify": "^4.26.0"
   }
 }
