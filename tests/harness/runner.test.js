@@ -28,7 +28,7 @@ describe('ScenarioRunner Integration', () => {
       },
     });
 
-    const runner = createRunner({ serverPort: 3098 });
+    const runner = createRunner({ serverPort: 3108 });
     const result = await runner.run(scenario);
 
     expect(result.name).toBe('simple-connect');
@@ -46,7 +46,7 @@ describe('ScenarioRunner Integration', () => {
       ],
     });
 
-    const runner = createRunner({ serverPort: 3097 });
+    const runner = createRunner({ serverPort: 3107 });
     const result = await runner.run(scenario);
 
     expect(result.status).toBe(ResultStatus.TIMEOUT);
@@ -63,7 +63,7 @@ describe('ScenarioRunner Integration', () => {
       ],
     });
 
-    const runner = createRunner({ serverPort: 3096 });
+    const runner = createRunner({ serverPort: 3106 });
     const result = await runner.run(scenario);
 
     expect(result.status).toBe(ResultStatus.FAILED);
@@ -88,7 +88,7 @@ describe('ScenarioRunner Integration', () => {
       },
     });
 
-    const runner = createRunner({ serverPort: 3095 });
+    const runner = createRunner({ serverPort: 3105 });
     const result = await runner.run(scenario);
 
     expect(result.status).toBe(ResultStatus.FAILED);
