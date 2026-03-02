@@ -32,38 +32,20 @@ export const StepType = {
   WAIT: 'wait',
   WAIT_RECONNECT: 'wait_reconnect',
   WAIT_LIVENESS_FAILURE: 'wait_liveness_failure',
+  WAIT_GIVE_UP: 'wait_give_up',
   
-  // Assertions
+  // Assertions (SSRK-200)
   ASSERT_STATE: 'assert_state',
   ASSERT_STATS: 'assert_stats',
   ASSERT_EVENTS_RECEIVED: 'assert_events_received',
   ASSERT_DUPLICATES_DROPPED: 'assert_duplicates_dropped',
   ASSERT_CANNOT_RESUME: 'assert_cannot_resume',
+  ASSERT_RECONNECTS: 'assert_reconnects',
+  ASSERT_GIVEN_UP: 'assert_given_up',
+  ASSERT_RESUME_SUCCESS: 'assert_resume_success',
+  ASSERT_LIVENESS_FAILURE: 'assert_liveness_failure',
+  ASSERT_NO_DUPLICATES: 'assert_no_duplicates',
 };
-
-/**
- * Scenario Definition Schema
- * 
- * {
- *   name: string,           // Unique scenario name
- *   description: string,    // Human-readable description
- *   timeout: number,        // Max execution time (ms)
- *   tags: string[],         // Tags for filtering
- *   config: {               // Client/server configuration overrides
- *     client: { ... },
- *     server: { ... },
- *   },
- *   steps: [                // Ordered steps to execute
- *     { type: StepType, ...params },
- *   ],
- *   expected: {             // Expected outcomes
- *     finalState: string,
- *     minEventsReceived: number,
- *     reconnectCount: number,
- *     ...
- *   },
- * }
- */
 
 /**
  * Validate scenario definition

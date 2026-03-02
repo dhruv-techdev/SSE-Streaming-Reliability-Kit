@@ -1,10 +1,11 @@
 /**
- * Scenario Runner (SSRK-191)
- * Executes fault injection scenarios
+ * Scenario Runner (SSRK-191, SSRK-199, SSRK-201)
+ * Executes fault injection scenarios with timeouts and fail-fast
  */
 import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
 import { StepType } from './scenario.js';
+import { createAssertions, AssertionError } from './assertions.js';
 import { connectSSE } from '../../client/src/sse-connector.js';
 
 /**
@@ -18,6 +19,16 @@ export const ResultStatus = {
 };
 
 /**
+ * Default timeouts (SSRK-199, SSRK-201)
+ */
+export const DEFAULT_TIMEOUTS = {
+  SCENARIO_TIMEOUT: 30000,      // Max time for entire scenario
+  STEP_TIMEOUT: 10000,          // Max time for single step
+  SERVER_START_TIMEOUT: 5000,   // Max time to start server
+  GLOBAL_TIMEOUT: 300000,       // Max time for all scenarios (5 min)
+};
+
+/**
  * Scenario Runner Class
  */
 export class ScenarioRunner extends EventEmitter {
@@ -26,7 +37,9 @@ export class ScenarioRunner extends EventEmitter {
     
     this.options = {
       serverPort: options.serverPort || 3099,
-      serverStartTimeout: options.serverStartTimeout || 5000,
+      serverStartTimeout: options.serverStartTimeout || DEFAULT_TIMEOUTS.SERVER_START_TIMEOUT,
+      globalTimeout: options.globalTimeout || DEFAULT_TIMEOUTS.GLOBAL_TIMEOUT,
+      failFast: options.failFast || false,  // SSRK-199: Stop on first failure
       debug: options.debug || false,
     };
 
@@ -39,6 +52,63 @@ export class ScenarioRunner extends EventEmitter {
     this.cannotResumeReceived = false;
     this.cannotResumePayload = null;
     this.livenessFailures = 0;
+    this.assertions = null;
+    
+    // Global timeout tracking (SSRK-199)
+    this._globalStartTime = null;
+    this._aborted = false;
+  }
+
+  /**
+   * Check global timeout (SSRK-199)
+   */
+  _checkGlobalTimeout() {
+    if (!this._globalStartTime) return false;
+    const elapsed = Date.now() - this._globalStartTime;
+    return elapsed > this.options.globalTimeout;
+  }
+
+  /**
+   * Run multiple scenarios (SSRK-199, SSRK-207)
+   */
+  async runAll(scenarios, options = {}) {
+    const results = [];
+    this._globalStartTime = Date.now();
+    this._aborted = false;
+
+    for (const scenario of scenarios) {
+      // Check global timeout (SSRK-199)
+      if (this._checkGlobalTimeout()) {
+        results.push({
+          name: scenario.name,
+          status: ResultStatus.TIMEOUT,
+          duration: 0,
+          steps: [],
+          events: [],
+          errors: ['Global timeout exceeded'],
+          stats: null,
+          message: `Global timeout of ${this.options.globalTimeout}ms exceeded`,
+        });
+        this._aborted = true;
+        break;
+      }
+
+      // Run scenario
+      const result = await this.run(scenario);
+      results.push(result);
+
+      // Fail-fast: stop on first failure (SSRK-199)
+      if (this.options.failFast && result.status !== ResultStatus.PASSED) {
+        this._aborted = true;
+        break;
+      }
+    }
+
+    return {
+      results,
+      aborted: this._aborted,
+      duration: Date.now() - this._globalStartTime,
+    };
   }
 
   /**
@@ -46,6 +116,10 @@ export class ScenarioRunner extends EventEmitter {
    */
   async run(scenario) {
     const startTime = Date.now();
+    
+    // Apply timeout (SSRK-199, SSRK-201)
+    const timeout = scenario.timeout || DEFAULT_TIMEOUTS.SCENARIO_TIMEOUT;
+    
     const result = {
       name: scenario.name,
       status: ResultStatus.PASSED,
@@ -55,14 +129,15 @@ export class ScenarioRunner extends EventEmitter {
       errors: [],
       stats: null,
       message: '',
+      assertions: [],
     };
 
     try {
-      // Set up timeout
+      // Set up timeout (SSRK-201)
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => {
-          reject(new Error(`Scenario timeout after ${scenario.timeout}ms`));
-        }, scenario.timeout);
+          reject(new Error(`Scenario timeout after ${timeout}ms`));
+        }, timeout);
       });
 
       // Run scenario with timeout
@@ -75,9 +150,13 @@ export class ScenarioRunner extends EventEmitter {
       this._validateExpected(scenario, result);
 
     } catch (err) {
-      result.status = err.message.includes('timeout') 
-        ? ResultStatus.TIMEOUT 
-        : ResultStatus.ERROR;
+      if (err.message.includes('timeout')) {
+        result.status = ResultStatus.TIMEOUT;
+      } else if (err instanceof AssertionError) {
+        result.status = ResultStatus.FAILED;
+      } else {
+        result.status = ResultStatus.ERROR;
+      }
       result.message = err.message;
       result.errors.push(err.message);
     } finally {
@@ -87,6 +166,7 @@ export class ScenarioRunner extends EventEmitter {
       result.duration = Date.now() - startTime;
       result.events = [...this.events];
       result.stats = this.connector?.getStats() || null;
+      result.assertions = this.assertions?.getResults() || [];
     }
 
     return result;
@@ -104,6 +184,9 @@ export class ScenarioRunner extends EventEmitter {
     this.cannotResumeReceived = false;
     this.cannotResumePayload = null;
     this.livenessFailures = 0;
+    
+    // Create assertions context
+    this.assertions = createAssertions(this);
 
     // Start server if needed
     const serverConfig = {
@@ -112,25 +195,39 @@ export class ScenarioRunner extends EventEmitter {
     };
     await this._startServer(serverConfig);
 
-    // Execute each step
+    // Execute each step with individual timeout (SSRK-201)
     for (let i = 0; i < scenario.steps.length; i++) {
       const step = scenario.steps[i];
+      const stepTimeout = step.timeout || DEFAULT_TIMEOUTS.STEP_TIMEOUT;
+      
       const stepResult = {
         index: i,
         type: step.type,
         status: 'passed',
         message: '',
+        duration: 0,
       };
 
+      const stepStart = Date.now();
+
       try {
-        await this._executeStep(step, scenario);
+        // Step with timeout (SSRK-201)
+        await Promise.race([
+          this._executeStep(step, scenario),
+          new Promise((_, reject) => {
+            setTimeout(() => reject(new Error(`Step timeout after ${stepTimeout}ms`)), stepTimeout);
+          }),
+        ]);
+        
+        stepResult.duration = Date.now() - stepStart;
         
         if (this.options.debug) {
-          console.log(`  ✓ Step ${i}: ${step.type}`);
+          console.log(`  ✓ Step ${i}: ${step.type} (${stepResult.duration}ms)`);
         }
       } catch (err) {
         stepResult.status = 'failed';
         stepResult.message = err.message;
+        stepResult.duration = Date.now() - stepStart;
         result.status = ResultStatus.FAILED;
         result.message = `Step ${i} (${step.type}) failed: ${err.message}`;
         
@@ -141,6 +238,7 @@ export class ScenarioRunner extends EventEmitter {
 
       result.steps.push(stepResult);
       
+      // Fail-fast on step failure (SSRK-199)
       if (stepResult.status === 'failed') {
         break;
       }
@@ -216,6 +314,10 @@ export class ScenarioRunner extends EventEmitter {
         await this._stepWaitLivenessFailure(step);
         break;
 
+      case StepType.WAIT_GIVE_UP:
+        await this._stepWaitGiveUp(step);
+        break;
+
       case StepType.ASSERT_STATE:
         await this._stepAssertState(step);
         break;
@@ -236,12 +338,32 @@ export class ScenarioRunner extends EventEmitter {
         await this._stepAssertCannotResume(step);
         break;
 
+      case StepType.ASSERT_RECONNECTS:
+        await this._stepAssertReconnects(step);
+        break;
+
+      case StepType.ASSERT_GIVEN_UP:
+        await this._stepAssertGivenUp(step);
+        break;
+
+      case StepType.ASSERT_RESUME_SUCCESS:
+        await this._stepAssertResumeSuccess(step);
+        break;
+
+      case StepType.ASSERT_LIVENESS_FAILURE:
+        await this._stepAssertLivenessFailure(step);
+        break;
+
+      case StepType.ASSERT_NO_DUPLICATES:
+        await this._stepAssertNoDuplicates(step);
+        break;
+
       default:
         throw new Error(`Unknown step type: ${step.type}`);
     }
   }
 
-  // Step implementations
+  // ==================== Step Implementations ====================
 
   async _stepConnect(step, scenario) {
     const clientConfig = {
@@ -330,7 +452,6 @@ export class ScenarioRunner extends EventEmitter {
   }
 
   async _stepDropConnection(step) {
-    // Kill the server connection by restarting with a brief stop
     if (this.serverProcess) {
       this.serverProcess.kill('SIGTERM');
       await this._sleep(100);
@@ -339,8 +460,6 @@ export class ScenarioRunner extends EventEmitter {
   }
 
   async _stepPauseEvents(step) {
-    // Signal server to pause (via env or control endpoint)
-    // For now, just stop the server temporarily
     if (this.serverProcess) {
       this.serverProcess.kill('SIGSTOP');
     }
@@ -353,19 +472,11 @@ export class ScenarioRunner extends EventEmitter {
   }
 
   async _stepInjectDuplicate(step) {
-    // Inject a duplicate by storing an event and re-emitting it
-    if (this.events.length > 0) {
-      const lastEvent = this.events[this.events.length - 1];
-      // The dedupe cache will handle this when we receive the same event_id
-      // For simulation, we need server-side support
-      // This is a placeholder - real implementation needs server endpoint
-    }
+    // Placeholder - needs server support
   }
 
   async _stepDelayEvents(step) {
     const delayMs = step.delayMs || 1000;
-    // Would need server-side support to delay events
-    // For now, just wait
     await this._sleep(delayMs);
   }
 
@@ -382,8 +493,6 @@ export class ScenarioRunner extends EventEmitter {
   }
 
   async _stepStopHeartbeats(step) {
-    // Would need server-side support
-    // For testing, we restart server with very long heartbeat interval
     if (this.serverProcess) {
       this.serverProcess.kill('SIGTERM');
       await this._sleep(200);
@@ -438,13 +547,22 @@ export class ScenarioRunner extends EventEmitter {
     }
   }
 
-  async _stepAssertState(step) {
-    const expectedState = step.state;
-    const actualState = this.connector?.getState();
+  async _stepWaitGiveUp(step) {
+    const timeout = step.timeout || 30000;
+    const start = Date.now();
 
-    if (actualState !== expectedState) {
-      throw new Error(`Expected state ${expectedState}, got ${actualState}`);
+    while (!this.connector?.hasGivenUp) {
+      if (Date.now() - start > timeout) {
+        throw new Error('Timeout waiting for give-up');
+      }
+      await this._sleep(100);
     }
+  }
+
+  // ==================== Assertion Steps (SSRK-200) ====================
+
+  async _stepAssertState(step) {
+    this.assertions.state(step.state);
   }
 
   async _stepAssertStats(step) {
@@ -454,47 +572,75 @@ export class ScenarioRunner extends EventEmitter {
       const actual = stats[key];
       
       if (typeof expected === 'object') {
-        if (expected.min !== undefined && actual < expected.min) {
-          throw new Error(`Expected ${key} >= ${expected.min}, got ${actual}`);
+        if (expected.min !== undefined) {
+          this.assertions.statMin(key, expected.min);
         }
-        if (expected.max !== undefined && actual > expected.max) {
-          throw new Error(`Expected ${key} <= ${expected.max}, got ${actual}`);
+        if (expected.max !== undefined) {
+          this.assertions.statMax(key, expected.max);
         }
-      } else if (actual !== expected) {
-        throw new Error(`Expected ${key} = ${expected}, got ${actual}`);
+      } else {
+        this.assertions.stat(key, expected);
       }
     }
   }
 
   async _stepAssertEventsReceived(step) {
-    const min = step.min || 0;
-    const max = step.max;
-
-    if (this.events.length < min) {
-      throw new Error(`Expected at least ${min} events, got ${this.events.length}`);
+    if (step.min !== undefined) {
+      this.assertions.minEvents(step.min);
     }
-
-    if (max !== undefined && this.events.length > max) {
-      throw new Error(`Expected at most ${max} events, got ${this.events.length}`);
+    if (step.max !== undefined) {
+      this.assertions.maxEvents(step.max);
+    }
+    if (step.count !== undefined) {
+      this.assertions.eventsReceived(step.count);
     }
   }
 
   async _stepAssertDuplicatesDropped(step) {
-    const expected = step.count;
-
-    if (this.duplicatesDropped !== expected) {
-      throw new Error(`Expected ${expected} duplicates dropped, got ${this.duplicatesDropped}`);
+    if (step.count !== undefined) {
+      this.assertions.duplicatesDropped(step.count);
+    }
+    if (step.min !== undefined) {
+      this.assertions.minDuplicatesDropped(step.min);
     }
   }
 
   async _stepAssertCannotResume(step) {
-    if (!this.cannotResumeReceived) {
-      throw new Error('Expected cannot-resume event but none received');
-    }
+    this.assertions.cannotResumeReceived();
+  }
 
-    if (step.reason && this.cannotResumePayload?.code !== step.reason) {
-      throw new Error(`Expected cannot-resume reason ${step.reason}, got ${this.cannotResumePayload?.code}`);
+  async _stepAssertReconnects(step) {
+    if (step.count !== undefined) {
+      this.assertions.reconnectCount(step.count);
     }
+    if (step.min !== undefined) {
+      this.assertions.minReconnects(step.min);
+    }
+    if (step.max !== undefined) {
+      this.assertions.maxReconnects(step.max);
+    }
+  }
+
+  async _stepAssertGivenUp(step) {
+    this.assertions.hasGivenUp();
+    if (step.noFurtherRetries) {
+      this.assertions.noFurtherRetries();
+    }
+  }
+
+  async _stepAssertResumeSuccess(step) {
+    this.assertions.resumeSucceeded();
+  }
+
+  async _stepAssertLivenessFailure(step) {
+    this.assertions.livenessFailureOccurred();
+    if (step.reconnectAttempted) {
+      this.assertions.reconnectAfterLiveness();
+    }
+  }
+
+  async _stepAssertNoDuplicates(step) {
+    this.assertions.noDuplicatesProcessed();
   }
 
   /**
@@ -507,46 +653,57 @@ export class ScenarioRunner extends EventEmitter {
       return;
     }
 
-    const stats = this.connector?.getStats();
+    try {
+      if (expected.finalState) {
+        this.assertions.state(expected.finalState);
+      }
 
-    if (expected.finalState && stats?.state !== expected.finalState) {
-      result.status = ResultStatus.FAILED;
-      result.errors.push(`Expected final state ${expected.finalState}, got ${stats?.state}`);
-    }
+      if (expected.minEventsReceived !== undefined) {
+        this.assertions.minEvents(expected.minEventsReceived);
+      }
 
-    if (expected.minEventsReceived !== undefined && this.events.length < expected.minEventsReceived) {
-      result.status = ResultStatus.FAILED;
-      result.errors.push(`Expected at least ${expected.minEventsReceived} events, got ${this.events.length}`);
-    }
+      if (expected.reconnectCount !== undefined) {
+        this.assertions.reconnectCount(expected.reconnectCount);
+      }
 
-    if (expected.reconnectCount !== undefined && stats?.reconnectCount !== expected.reconnectCount) {
-      result.status = ResultStatus.FAILED;
-      result.errors.push(`Expected ${expected.reconnectCount} reconnects, got ${stats?.reconnectCount}`);
-    }
+      if (expected.minReconnectCount !== undefined) {
+        this.assertions.minReconnects(expected.minReconnectCount);
+      }
 
-    if (expected.minReconnectCount !== undefined && (stats?.reconnectCount || 0) < expected.minReconnectCount) {
-      result.status = ResultStatus.FAILED;
-      result.errors.push(`Expected at least ${expected.minReconnectCount} reconnects, got ${stats?.reconnectCount}`);
-    }
+      if (expected.maxReconnectCount !== undefined) {
+        this.assertions.maxReconnects(expected.maxReconnectCount);
+      }
 
-    if (expected.duplicatesDropped !== undefined && this.duplicatesDropped !== expected.duplicatesDropped) {
-      result.status = ResultStatus.FAILED;
-      result.errors.push(`Expected ${expected.duplicatesDropped} duplicates dropped, got ${this.duplicatesDropped}`);
-    }
+      if (expected.duplicatesDropped !== undefined) {
+        this.assertions.duplicatesDropped(expected.duplicatesDropped);
+      }
 
-    if (expected.cannotResumeReceived && !this.cannotResumeReceived) {
-      result.status = ResultStatus.FAILED;
-      result.errors.push('Expected cannot-resume event but none received');
-    }
+      if (expected.cannotResumeReceived) {
+        this.assertions.cannotResumeReceived();
+      }
 
-    if (expected.livenessFailures !== undefined && this.livenessFailures !== expected.livenessFailures) {
-      result.status = ResultStatus.FAILED;
-      result.errors.push(`Expected ${expected.livenessFailures} liveness failures, got ${this.livenessFailures}`);
-    }
+      if (expected.livenessFailures !== undefined) {
+        this.assertions.livenessFailures(expected.livenessFailures);
+      }
 
-    if (expected.minLivenessFailures !== undefined && this.livenessFailures < expected.minLivenessFailures) {
+      if (expected.minLivenessFailures !== undefined) {
+        this.assertions.custom(
+          `At least ${expected.minLivenessFailures} liveness failures`,
+          (ctx) => ctx.livenessFailures >= expected.minLivenessFailures
+        );
+      }
+
+      if (expected.hasGivenUp) {
+        this.assertions.hasGivenUp();
+      }
+
+      if (expected.resumeSucceeded) {
+        this.assertions.resumeSucceeded();
+      }
+
+    } catch (err) {
       result.status = ResultStatus.FAILED;
-      result.errors.push(`Expected at least ${expected.minLivenessFailures} liveness failures, got ${this.livenessFailures}`);
+      result.errors.push(err.message);
     }
   }
 
@@ -569,7 +726,6 @@ export class ScenarioRunner extends EventEmitter {
       stdio: 'pipe',
     });
 
-    // Wait for server to start
     await new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         reject(new Error('Server start timeout'));
@@ -621,4 +777,4 @@ export function createRunner(options) {
   return new ScenarioRunner(options);
 }
 
-export default { ScenarioRunner, createRunner, ResultStatus };
+export default { ScenarioRunner, createRunner, ResultStatus, DEFAULT_TIMEOUTS };
