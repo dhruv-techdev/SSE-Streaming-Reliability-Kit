@@ -126,7 +126,10 @@ describe('SSE Connector Integration', () => {
 
   it('should receive events with state tracking', async () => {
     const events = [];
-    const { promise, resolve } = Promise.withResolvers();
+    let resolve;
+    const promise = new Promise((res) => {
+      resolve = res;
+    });
 
     const connector = connectSSE(`http://localhost:${port}/stream`, {
       onEvent: (envelope) => {
