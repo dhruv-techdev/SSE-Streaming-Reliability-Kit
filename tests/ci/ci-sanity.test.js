@@ -16,19 +16,19 @@ describe('CI Sanity', () => {
   });
 
   it('should import shared modules', async () => {
-    const shared = await import('../../../shared/src/index.js');
+    const shared = await import('../../shared/src/index.js');
     expect(shared.generateEventId).toBeDefined();
     expect(shared.createEnvelope).toBeDefined();
   });
 
   it('should import client modules', async () => {
-    const client = await import('../../../client/src/index.js');
+    const client = await import('../../client/src/index.js');
     expect(client.connectSSE).toBeDefined();
     expect(client.SSEConnector).toBeDefined();
   });
 
   it('should import harness modules', async () => {
-    const harness = await import('../../../harness/src/index.js');
+    const harness = await import('../../harness/src/index.js');
     expect(harness.defineScenario).toBeDefined();
     expect(harness.createRunner).toBeDefined();
   });
