@@ -9,10 +9,10 @@
 export const DEDUPE_DEFAULTS = {
   // Maximum number of event IDs to cache
   MAX_SIZE: 1000,
-  
+
   // TTL for cached IDs in ms (0 = no expiry, rely on size limit)
   TTL_MS: 0,
-  
+
   // Whether to track duplicates for telemetry
   TRACK_DUPLICATES: true,
 };
@@ -31,20 +31,20 @@ export class DedupeCache {
     this.maxSize = options.maxSize || DEDUPE_DEFAULTS.MAX_SIZE;
     this.ttlMs = options.ttlMs || DEDUPE_DEFAULTS.TTL_MS;
     this.trackDuplicates = options.trackDuplicates !== false;
-    
+
     // Callbacks (SSRK-150)
     this.onDuplicate = options.onDuplicate || null;
-    
+
     // Debug
     this._debug = options.debug || false;
-    
+
     // Cache storage - Map for O(1) lookup
     // Key: event_id, Value: { addedAt: timestamp }
     this._cache = new Map();
-    
+
     // Insertion order tracking for LRU eviction
     this._insertionOrder = [];
-    
+
     // Stats (SSRK-150)
     this._stats = {
       totalChecked: 0,
@@ -57,12 +57,12 @@ export class DedupeCache {
 
   /**
    * Check if an event is a duplicate and add to cache if not (SSRK-146)
-   * 
+   *
    * Dedupe strategy:
    * - Key: event_id (unique identifier)
    * - If event_id exists in cache → duplicate
    * - If event_id not in cache → add and return false
-   * 
+   *
    * @param {Object} envelope - Event envelope
    * @returns {boolean} True if duplicate, false if new
    */
@@ -73,7 +73,7 @@ export class DedupeCache {
 
     const eventId = envelope.event_id;
     const eventType = envelope.type;
-    
+
     this._stats.totalChecked++;
 
     // Skip heartbeats and control events from cache (SSRK-148)
@@ -94,7 +94,7 @@ export class DedupeCache {
 
     // Not a duplicate - add to cache
     this._addToCache(eventId);
-    
+
     return false;
   }
 
@@ -104,22 +104,22 @@ export class DedupeCache {
    */
   _shouldSkipCache(eventType) {
     if (!eventType) return false;
-    
+
     // Skip heartbeats (SSRK-148)
     if (eventType === 'system.heartbeat') {
       return true;
     }
-    
+
     // Skip control events (SSRK-148)
     if (eventType.startsWith('control.')) {
       return true;
     }
-    
+
     // Skip system events
     if (eventType.startsWith('system.')) {
       return true;
     }
-    
+
     return false;
   }
 
@@ -128,17 +128,17 @@ export class DedupeCache {
    */
   _handleDuplicate(envelope) {
     this._stats.totalDuplicates++;
-    
+
     // Track by type (SSRK-150)
     if (this.trackDuplicates) {
       const type = envelope.type || 'unknown';
       this._stats.duplicatesByType[type] = (this._stats.duplicatesByType[type] || 0) + 1;
     }
-    
+
     if (this._debug) {
       console.log(`[DEDUPE] Duplicate detected: ${envelope.event_id} (type: ${envelope.type})`);
     }
-    
+
     // Fire callback (SSRK-150)
     if (this.onDuplicate) {
       this.onDuplicate({
@@ -157,13 +157,13 @@ export class DedupeCache {
     if (this._cache.size >= this.maxSize) {
       this._evictOldest();
     }
-    
+
     this._cache.set(eventId, {
       addedAt: Date.now(),
     });
     this._insertionOrder.push(eventId);
     this._stats.totalAdded++;
-    
+
     if (this._debug) {
       console.log(`[DEDUPE] Added: ${eventId} (size: ${this._cache.size})`);
     }
@@ -178,7 +178,7 @@ export class DedupeCache {
       if (this._cache.has(oldestId)) {
         this._cache.delete(oldestId);
         this._stats.totalEvicted++;
-        
+
         if (this._debug) {
           console.log(`[DEDUPE] Evicted: ${oldestId}`);
         }
@@ -191,19 +191,19 @@ export class DedupeCache {
    */
   _cleanupExpired() {
     if (this.ttlMs <= 0) return;
-    
+
     const now = Date.now();
     const cutoff = now - this.ttlMs;
-    
+
     for (const [eventId, entry] of this._cache.entries()) {
       if (entry.addedAt < cutoff) {
         this._cache.delete(eventId);
         this._stats.totalEvicted++;
       }
     }
-    
+
     // Clean up insertion order
-    this._insertionOrder = this._insertionOrder.filter(id => this._cache.has(id));
+    this._insertionOrder = this._insertionOrder.filter((id) => this._cache.has(id));
   }
 
   /**
@@ -228,7 +228,7 @@ export class DedupeCache {
   clear() {
     this._cache.clear();
     this._insertionOrder = [];
-    
+
     if (this._debug) {
       console.log(`[DEDUPE] Cache cleared`);
     }

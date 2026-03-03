@@ -92,6 +92,6 @@ describe('ScenarioRunner Integration', () => {
     const result = await runner.run(scenario);
 
     expect(result.status).toBe(ResultStatus.FAILED);
-    expect(result.errors.some(e => e.includes('events'))).toBe(true);
+    expect(result.errors.some((e) => e.includes('events'))).toBe(true);
   }, 20000);
 });

@@ -1,8 +1,21 @@
 {
   "name": "sse-streaming-reliability-kit",
   "version": "1.0.0",
-  "description": "A comprehensive SSE streaming reliability toolkit",
+  "description": "A comprehensive SSE streaming reliability toolkit with reconnection, resume, deduplication, and observability",
   "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./client": "./dist/client/index.js",
+    "./server": "./dist/server/index.js",
+    "./shared": "./dist/shared/index.js"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "scripts": {
     "dev": "node server/src/server.js",
     "server": "node server/src/server.js",
@@ -10,10 +23,46 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "harness": "node harness/src/cli.js",
-    "lint": "eslint ."
+    "harness:all": "node harness/src/cli.js run-all",
+    "build": "node scripts/build.js",
+    "prepublishOnly": "npm run build && npm run lint && npm test",
+    "ci": "npm run lint && npm run format:check && npm test && npm run harness:all",
+    "precommit": "npm run lint && npm run format:check && npm test",
+    "release": "node scripts/release.js",
+    "version": "npm run build && git add -A dist"
+  },
+  "keywords": [
+    "sse",
+    "server-sent-events",
+    "streaming",
+    "reliability",
+    "reconnection",
+    "resume",
+    "deduplication",
+    "event-sourcing",
+    "real-time"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/sse-streaming-reliability-kit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-org/sse-streaming-reliability-kit/issues"
+  },
+  "homepage": "https://github.com/your-org/sse-streaming-reliability-kit#readme",
+  "engines": {
+    "node": ">=18.0.0"
   },
   "devDependencies": {
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.0",
     "vitest": "^1.6.0"
   },
   "dependencies": {

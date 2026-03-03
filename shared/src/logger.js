@@ -34,7 +34,7 @@ export const LogComponent = {
   HEARTBEAT: 'heartbeat',
   REPLAY: 'replay',
   METRICS: 'metrics',
-  
+
   // Client components
   CLIENT: 'client',
   CONNECTOR: 'connector',
@@ -55,7 +55,7 @@ export const LogEvent = {
   STREAM_OPEN: 'stream.open',
   STREAM_CLOSE: 'stream.close',
   STREAM_REJECT: 'stream.reject',
-  
+
   // Client lifecycle (SSRK-178)
   CLIENT_CONNECTING: 'client.connecting',
   CLIENT_OPEN: 'client.open',
@@ -63,27 +63,27 @@ export const LogEvent = {
   CLIENT_GIVE_UP: 'client.give_up',
   CLIENT_STOP: 'client.stop',
   CLIENT_CLOSE: 'client.close',
-  
+
   // Resume events (SSRK-179)
   RESUME_ATTEMPT: 'resume.attempt',
   RESUME_SUCCESS: 'resume.success',
   RESUME_CANNOT_RESUME: 'resume.cannot_resume',
   RESUME_FAILURE: 'resume.failure',
-  
+
   // Heartbeat/Liveness
   HEARTBEAT_SENT: 'heartbeat.sent',
   HEARTBEAT_FAILED: 'heartbeat.failed',
   LIVENESS_FAILURE: 'liveness.failure',
-  
+
   // Data events (SSRK-180)
   PARSE_ERROR: 'parse.error',
   VALIDATION_ERROR: 'validation.error',
-  
+
   // Replay
   REPLAY_START: 'replay.start',
   REPLAY_END: 'replay.end',
   REPLAY_TRUNCATED: 'replay.truncated',
-  
+
   // Dedupe/Ordering
   DUPLICATE_DETECTED: 'duplicate.detected',
   OUT_OF_ORDER: 'out_of_order.detected',
@@ -91,14 +91,14 @@ export const LogEvent = {
 
 /**
  * Log Schema (SSRK-174)
- * 
+ *
  * Required fields:
  * - ts: ISO timestamp
  * - level: debug|info|warn|error
  * - component: server|client|stream|etc
  * - event: dot-separated event name
  * - message: human-readable description
- * 
+ *
  * Optional fields:
  * - stream_id: connection/stream identifier
  * - details: additional context object
@@ -118,7 +118,7 @@ export class Logger {
     this.streamId = options.streamId || null;
     this.output = options.output || console;
     this.enabled = options.enabled !== false;
-    
+
     // Additional context to include in all logs
     this._context = options.context || {};
   }
@@ -165,22 +165,22 @@ export class Logger {
    */
   _sanitizeDetails(details) {
     const sanitized = { ...details };
-    
+
     // Remove potentially sensitive fields
     const sensitiveKeys = ['password', 'token', 'secret', 'key', 'auth', 'credential'];
-    
+
     for (const key of Object.keys(sanitized)) {
       const lowerKey = key.toLowerCase();
-      if (sensitiveKeys.some(s => lowerKey.includes(s))) {
+      if (sensitiveKeys.some((s) => lowerKey.includes(s))) {
         sanitized[key] = '[REDACTED]';
       }
-      
+
       // Truncate very long strings
       if (typeof sanitized[key] === 'string' && sanitized[key].length > 500) {
         sanitized[key] = sanitized[key].slice(0, 500) + '...[truncated]';
       }
     }
-    
+
     return sanitized;
   }
 
@@ -206,7 +206,7 @@ export class Logger {
       default:
         this.output.log(json);
     }
-    
+
     return entry;
   }
 

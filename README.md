@@ -1,116 +1,170 @@
 # SSE Streaming Reliability Kit
 
-Fix buffering and timeouts end-to-end for Server-Sent Events.
+[![CI](https://github.com/your-org/sse-streaming-reliability-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/sse-streaming-reliability-kit/actions/workflows/ci.yml)
+[![npm version](https://badge.fury.io/js/sse-streaming-reliability-kit.svg)](https://badge.fury.io/js/sse-streaming-reliability-kit)
 
-## Prerequisites
+A comprehensive Server-Sent Events (SSE) reliability toolkit that handles reconnection, resume, deduplication, and observability out of the box.
 
-- Node.js >= 18.x
-- npm >= 9.x
+## Features
+
+- ��� **Automatic Reconnection** - Exponential backoff with jitter, circuit breaker
+- ▶️ **Resume Support** - Last-Event-ID tracking, server-side replay buffer
+- ��� **Deduplication** - Bounded LRU cache prevents duplicate processing
+- ��� **Observability** - Prometheus metrics, structured logging, correlation IDs
+- ��� **Liveness Detection** - Heartbeat monitoring with configurable timeouts
+- ��� **Fault Injection** - Test harness with pre-built failure scenarios
 
 ## Quick Start
+
+### Installation
+
 ```bash
-# 1. Install dependencies
+npm install sse-streaming-reliability-kit
+```
+
+### 30-Second Example
+
+**Server:**
+
+```javascript
+import Fastify from 'fastify';
+import { createSSEWriter, createHeartbeat } from 'sse-streaming-reliability-kit/server';
+
+const app = Fastify();
+
+app.get('/stream', (req, reply) => {
+  const writer = createSSEWriter(reply.raw);
+  writer.init();
+
+  // Send events
+  setInterval(() => {
+    writer.sendEvent({
+      event_id: crypto.randomUUID(),
+      type: 'domain.tick',
+      ts: new Date().toISOString(),
+      payload: { time: Date.now() },
+    });
+  }, 1000);
+
+  reply.hijack();
+});
+
+app.listen({ port: 3000 });
+```
+
+**Client:**
+
+```javascript
+import { connectSSE } from 'sse-streaming-reliability-kit/client';
+
+const connector = connectSSE('http://localhost:3000/stream', {
+  onEvent: (event) => {
+    console.log('Received:', event.type, event.payload);
+  },
+  onError: (err) => {
+    console.error('Error:', err);
+  },
+});
+
+// Auto-reconnects on disconnect!
+```
+
+## Documentation
+
+| Topic           | Link                                               |
+| --------------- | -------------------------------------------------- |
+| Getting Started | [docs/getting-started.md](docs/getting-started.md) |
+| Client API      | [docs/client-api.md](docs/client-api.md)           |
+| Server API      | [docs/server-api.md](docs/server-api.md)           |
+| Configuration   | [docs/configuration.md](docs/configuration.md)     |
+| Metrics         | [docs/metrics.md](docs/metrics.md)                 |
+| Logging         | [docs/logging.md](docs/logging.md)                 |
+| Versioning      | [docs/versioning.md](docs/versioning.md)           |
+
+## Examples
+
+### With Resume Support
+
+```javascript
+const connector = connectSSE('http://localhost:3000/stream', {
+  persistLastEventId: true,
+  eventIdStorage: new FileStorage('./last-event-id.txt'),
+  onResumeAttempt: ({ lastEventId }) => {
+    console.log('Resuming from:', lastEventId);
+  },
+});
+```
+
+### With Custom Retry Policy
+
+```javascript
+const connector = connectSSE('http://localhost:3000/stream', {
+  retryPolicy: {
+    baseDelayMs: 1000,
+    maxDelayMs: 30000,
+    maxAttempts: 10,
+    maxRetryTimeMs: 300000, // 5 minutes
+    jitterPct: 0.2,
+  },
+});
+```
+
+### With Metrics
+
+```javascript
+import { createInMemorySink } from 'sse-streaming-reliability-kit/client';
+
+const sink = createInMemorySink();
+
+const connector = connectSSE('http://localhost:3000/stream', {
+  metricsSink: sink,
+  trackEventLag: true,
+});
+
+// Later: check metrics
+console.log(sink.toJSON());
+console.log(connector.getStats().lag);
+```
+
+## Compatibility & Upgrade Notes
+
+### Node.js Compatibility
+
+| Kit Version | Node.js   |
+| ----------- | --------- |
+| 1.x         | >= 18.0.0 |
+
+### Upgrading
+
+See [CHANGELOG.md](CHANGELOG.md) for upgrade notes between versions.
+
+### Breaking Changes Policy
+
+We follow [Semantic Versioning](https://semver.org/). Breaking changes only occur in MAJOR version bumps and are documented in the changelog with migration guides.
+
+## Development
+
+```bash
+# Install dependencies
 npm install
 
-# 2. Start the server
+# Run tests
+npm test
+
+# Run linter
+npm run lint
+
+# Run harness scenarios
+npm run harness:all
+
+# Start dev server
 npm run dev
-
-# 3. In another terminal, verify streaming works
-npm run client:demo
 ```
 
-## Verification Steps (ST-07)
+## Contributing
 
-### Option 1: Using the demo client
-```bash
-# Terminal 1
-npm run dev
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-# Terminal 2
-npm run client:demo
-```
+## License
 
-Expected output:
-- `✓ Content-Type: text/event-stream`
-- `✓ control.open received`
-- Multiple `✓ domain.stream.tick` events
-- `RESULT: PASS ✓`
-
-### Option 2: Using curl
-```bash
-# Terminal 1
-npm run dev
-
-# Terminal 2
-curl -N -H "Accept: text/event-stream" http://localhost:3000/stream
-```
-
-Expected output:
-```
-id: <uuid>
-event: control.open
-data: {"event_id":"...","type":"control.open",...}
-
-id: <uuid>
-event: domain.stream.tick
-data: {"event_id":"...","type":"domain.stream.tick","payload":{"sequence":1,...}}
-```
-
-### Option 3: Health check
-```bash
-curl http://localhost:3000/health
-# {"status":"ok","timestamp":"...","connections":0,"bufferedEvents":0}
-
-curl http://localhost:3000/info
-# Returns server configuration and stats
-```
-
-## Available Scripts
-
-| Script | Description |
-|--------|-------------|
-| `npm run dev` | Start the development server |
-| `npm run client:demo` | Run SSE verification client |
-| `npm test` | Run all tests |
-| `npm run lint` | Run ESLint |
-| `npm run format` | Format code with Prettier |
-| `npm run clean` | Remove artifacts and reinstall |
-
-## Configuration
-
-Copy `.env.example` to `.env`:
-```bash
-cp .env.example .env
-```
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | 3000 | Server port |
-| `HOST` | localhost | Server host |
-| `SSE_TICK_INTERVAL` | 2000 | Tick event interval (ms) |
-| `SSE_HEARTBEAT_INTERVAL` | 30000 | Heartbeat interval (ms) |
-| `SSE_RETRY_TIMEOUT` | 3000 | Client retry suggestion (ms) |
-| `SSE_MAX_BUFFER_SIZE` | 1000 | Max events for replay |
-
-## API Endpoints
-
-| Endpoint | Description |
-|----------|-------------|
-| `GET /health` | Health check with connection count |
-| `GET /info` | Server config and stats |
-| `GET /stream` | SSE stream endpoint |
-
-## Event Types
-
-| Type | Description |
-|------|-------------|
-| `control.open` | Connection established |
-| `control.close` | Connection closing |
-| `control.reconnect` | Resume instructions |
-| `system.heartbeat` | Keep-alive signal |
-| `system.error` | Error notification |
-| `domain.stream.tick` | Periodic tick event |
-
-## Protocol Documentation
-
-See [docs/SSE_PROTOCOL.md](docs/SSE_PROTOCOL.md) for full protocol specification.
+MIT - see [LICENSE](LICENSE)

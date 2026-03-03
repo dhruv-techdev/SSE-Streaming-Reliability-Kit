@@ -48,7 +48,7 @@ describe('SSE Stream Integration', () => {
   it('should stream events with valid envelope format', async () => {
     const events = await new Promise((resolve, reject) => {
       const collected = [];
-      
+
       const req = http.get(`http://localhost:${port}/stream`, (res) => {
         res.on('data', (chunk) => {
           const raw = chunk.toString();
@@ -57,14 +57,14 @@ describe('SSE Stream Integration', () => {
             const { envelope } = decodeSSE(parsed.data);
             if (envelope) collected.push(envelope);
           }
-          
+
           if (collected.length >= 3) {
             req.destroy();
             resolve(collected);
           }
         });
       });
-      
+
       req.on('error', reject);
       setTimeout(() => {
         req.destroy();
@@ -73,10 +73,10 @@ describe('SSE Stream Integration', () => {
     });
 
     expect(events.length).toBeGreaterThanOrEqual(1);
-    
+
     // Verify first event is control.open
     expect(events[0].type).toBe('control.open');
-    
+
     // Verify all events have required fields
     for (const event of events) {
       expect(event).toHaveProperty('event_id');
@@ -88,11 +88,13 @@ describe('SSE Stream Integration', () => {
 
   it('should return health status', async () => {
     const response = await new Promise((resolve, reject) => {
-      http.get(`http://localhost:${port}/health`, (res) => {
-        let data = '';
-        res.on('data', chunk => data += chunk);
-        res.on('end', () => resolve(JSON.parse(data)));
-      }).on('error', reject);
+      http
+        .get(`http://localhost:${port}/health`, (res) => {
+          let data = '';
+          res.on('data', (chunk) => (data += chunk));
+          res.on('end', () => resolve(JSON.parse(data)));
+        })
+        .on('error', reject);
     });
 
     expect(response.status).toBe('ok');

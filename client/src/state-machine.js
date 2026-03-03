@@ -5,9 +5,9 @@
 
 /**
  * Client Connection States (SSRK-90)
- * 
+ *
  * State Diagram:
- * 
+ *
  *     ┌─────────┐
  *     │  IDLE   │ ◄─────────────────────────────┐
  *     └────┬────┘                               │
@@ -50,7 +50,11 @@ export const ConnectionState = {
  */
 const VALID_TRANSITIONS = {
   [ConnectionState.IDLE]: [ConnectionState.CONNECTING, ConnectionState.CLOSED],
-  [ConnectionState.CONNECTING]: [ConnectionState.OPEN, ConnectionState.ERROR, ConnectionState.CLOSED],
+  [ConnectionState.CONNECTING]: [
+    ConnectionState.OPEN,
+    ConnectionState.ERROR,
+    ConnectionState.CLOSED,
+  ],
   [ConnectionState.OPEN]: [ConnectionState.ERROR, ConnectionState.CLOSED],
   [ConnectionState.ERROR]: [ConnectionState.RETRYING, ConnectionState.CLOSED],
   [ConnectionState.RETRYING]: [ConnectionState.CONNECTING, ConnectionState.CLOSED],
@@ -65,19 +69,19 @@ export const TransitionReason = {
   USER_CONNECT: 'user_connect',
   USER_STOP: 'user_stop',
   USER_RESTART: 'user_restart',
-  
+
   // Connection events
   CONNECTION_SUCCESS: 'connection_success',
   CONNECTION_ERROR: 'connection_error',
   CONNECTION_TIMEOUT: 'connection_timeout',
-  
+
   // Server events
   SERVER_CLOSE: 'server_close',
   SERVER_ERROR: 'server_error',
-  
+
   // Network events
   NETWORK_ERROR: 'network_error',
-  
+
   // Internal
   RETRY_SCHEDULED: 'retry_scheduled',
   RETRY_EXHAUSTED: 'retry_exhausted',
@@ -97,18 +101,18 @@ export class StateMachine {
     this._previousState = null;
     this._stateHistory = [];
     this._maxHistorySize = options.maxHistorySize || 50;
-    
+
     // Callbacks (SSRK-92)
     this._onStateChange = options.onStateChange || null;
     this._debug = options.debug || false;
-    
+
     // Stats
     this._stats = {
       transitionCount: 0,
       stateEnteredAt: Date.now(),
       timeInState: {},
     };
-    
+
     this._recordStateTime(this._state);
   }
 
@@ -159,10 +163,10 @@ export class StateMachine {
 
     const previousState = this._state;
     const timestamp = Date.now();
-    
+
     // Update state time tracking
     this._recordStateTime(previousState, timestamp);
-    
+
     // Perform transition
     this._previousState = previousState;
     this._state = targetState;
@@ -178,7 +182,7 @@ export class StateMachine {
       timestamp,
     };
     this._stateHistory.push(historyEntry);
-    
+
     // Trim history if needed
     if (this._stateHistory.length > this._maxHistorySize) {
       this._stateHistory.shift();
@@ -210,7 +214,7 @@ export class StateMachine {
     if (!this._stats.timeInState[state]) {
       this._stats.timeInState[state] = 0;
     }
-    
+
     if (endTime && this._stats.stateEnteredAt) {
       this._stats.timeInState[state] += endTime - this._stats.stateEnteredAt;
     }
@@ -219,7 +223,7 @@ export class StateMachine {
   /**
    * Convenience methods for common transitions
    */
-  
+
   connect() {
     return this.transition(ConnectionState.CONNECTING, TransitionReason.USER_CONNECT);
   }
@@ -257,7 +261,7 @@ export class StateMachine {
   forceClose(reason = TransitionReason.USER_STOP) {
     // Override normal transition rules for stop()
     const previousState = this._state;
-    
+
     if (this._state === ConnectionState.CLOSED) {
       return true; // Already closed
     }
@@ -298,7 +302,7 @@ export class StateMachine {
     // Update current state time
     const now = Date.now();
     const currentStateTime = now - this._stats.stateEnteredAt;
-    
+
     return {
       currentState: this._state,
       transitionCount: this._stats.transitionCount,

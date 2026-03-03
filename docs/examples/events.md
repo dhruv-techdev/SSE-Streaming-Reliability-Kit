@@ -3,6 +3,7 @@
 ## Required Fields
 
 All events MUST have these fields:
+
 - `event_id`: UUIDv7 identifier
 - `type`: Event type in dot-notation
 - `ts`: ISO 8601 timestamp
@@ -11,6 +12,7 @@ All events MUST have these fields:
 ## Example Events
 
 ### 1. Normal Domain Event
+
 ```json
 {
   "event_id": "0190a5e8-7c00-7000-8000-000000000001",
@@ -28,6 +30,7 @@ All events MUST have these fields:
 ```
 
 ### 2. Heartbeat Event
+
 ```json
 {
   "event_id": "0190a5e8-7c01-7000-8000-000000000002",
@@ -38,6 +41,7 @@ All events MUST have these fields:
 ```
 
 ### 3. Error Event
+
 ```json
 {
   "event_id": "0190a5e8-7c02-7000-8000-000000000003",
@@ -52,6 +56,7 @@ All events MUST have these fields:
 ```
 
 ### 4. Control Event (Open)
+
 ```json
 {
   "event_id": "0190a5e8-7c03-7000-8000-000000000004",
@@ -66,6 +71,7 @@ All events MUST have these fields:
 ```
 
 ### 5. Control Event (Reconnect)
+
 ```json
 {
   "event_id": "0190a5e8-7c04-7000-8000-000000000005",
@@ -79,6 +85,7 @@ All events MUST have these fields:
 ```
 
 ### 6. Minimal Valid Event
+
 ```json
 {
   "event_id": "0190a5e8-7c05-7000-8000-000000000006",
@@ -90,13 +97,13 @@ All events MUST have these fields:
 
 ## Reserved Event Types
 
-| Type | Purpose |
-|------|---------|
-| `system.heartbeat` | Keep-alive signal |
-| `system.error` | Error notification |
-| `system.ack` | Acknowledgment |
-| `control.open` | Connection established |
-| `control.close` | Connection closing |
+| Type                | Purpose                  |
+| ------------------- | ------------------------ |
+| `system.heartbeat`  | Keep-alive signal        |
+| `system.error`      | Error notification       |
+| `system.ack`        | Acknowledgment           |
+| `control.open`      | Connection established   |
+| `control.close`     | Connection closing       |
 | `control.reconnect` | Reconnection instruction |
 
 ## Naming Rules
@@ -106,6 +113,7 @@ All events MUST have these fields:
 - **All types**: Lowercase, dot-notation, alphanumeric only
 
 ## SSE Wire Format
+
 ```
 id: 0190a5e8-7c00-7000-8000-000000000001
 event: domain.user.created

@@ -15,22 +15,22 @@ export class ReplayBuffer {
   constructor(options = {}) {
     // Max events to store (SSRK-135)
     this.maxSize = options.maxSize || 1000;
-    
+
     // Max events to replay in one batch (SSRK-138)
     this.maxReplayBatch = options.maxReplayBatch || 100;
-    
+
     // TTL for events in ms (optional, 0 = no expiry)
     this.ttlMs = options.ttlMs || 0;
-    
+
     // Debug logging
     this._debug = options.debug || false;
-    
+
     // Event storage - array for ordering (SSRK-137)
     this._events = [];
-    
+
     // Index by event_id for fast lookup
     this._eventIndex = new Map();
-    
+
     // Stats
     this._stats = {
       totalAdded: 0,
@@ -86,10 +86,10 @@ export class ReplayBuffer {
     if (evicted) {
       this._eventIndex.delete(evicted.event.event_id);
       this._stats.totalEvicted++;
-      
+
       // Rebuild index (indices shifted)
       this._rebuildIndex();
-      
+
       if (this._debug) {
         console.log(`[REPLAY-BUFFER] Evicted: ${evicted.event.event_id}`);
       }
@@ -108,11 +108,11 @@ export class ReplayBuffer {
 
   /**
    * Find events after a given event_id (SSRK-136)
-   * 
+   *
    * Ordering rule (SSRK-137):
    * Events are returned in buffer order (insertion order),
    * which corresponds to the order they were originally sent.
-   * 
+   *
    * @param {string} lastEventId - The last event ID the client received
    * @returns {{ found: boolean, events: Array, truncated: boolean, reason?: string }}
    */
@@ -149,18 +149,20 @@ export class ReplayBuffer {
 
     // Get all events after this one (SSRK-136, SSRK-137)
     const eventsAfter = this._events.slice(index + 1);
-    
+
     // Check if we need to truncate (SSRK-138)
     let truncated = false;
-    let replayEvents = eventsAfter.map(e => e.event);
-    
+    let replayEvents = eventsAfter.map((e) => e.event);
+
     if (replayEvents.length > this.maxReplayBatch) {
       this._stats.replayExceeded++;
       truncated = true;
       replayEvents = replayEvents.slice(0, this.maxReplayBatch);
-      
+
       if (this._debug) {
-        console.log(`[REPLAY-BUFFER] Replay truncated: ${eventsAfter.length} → ${this.maxReplayBatch}`);
+        console.log(
+          `[REPLAY-BUFFER] Replay truncated: ${eventsAfter.length} → ${this.maxReplayBatch}`
+        );
       }
     }
 
@@ -207,7 +209,7 @@ export class ReplayBuffer {
 
     const now = Date.now();
     const cutoff = now - this.ttlMs;
-    
+
     let removed = 0;
     while (this._events.length > 0 && this._events[0].bufferedAt < cutoff) {
       const evicted = this._events.shift();
@@ -218,7 +220,7 @@ export class ReplayBuffer {
     if (removed > 0) {
       this._rebuildIndex();
       this._stats.totalEvicted += removed;
-      
+
       if (this._debug) {
         console.log(`[REPLAY-BUFFER] TTL cleanup: removed ${removed} expired events`);
       }
@@ -231,7 +233,7 @@ export class ReplayBuffer {
   clear() {
     this._events = [];
     this._eventIndex.clear();
-    
+
     if (this._debug) {
       console.log(`[REPLAY-BUFFER] Cleared`);
     }

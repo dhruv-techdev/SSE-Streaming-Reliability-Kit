@@ -15,7 +15,7 @@ describe('ClientMetrics', () => {
   describe('Metrics Sink Interface (SSRK-166)', () => {
     it('should have default no-op sink', () => {
       const metrics = createClientMetrics();
-      
+
       // Should not throw
       metrics.incReconnectAttempts();
       metrics.incDuplicateEvents();
@@ -28,7 +28,9 @@ describe('ClientMetrics', () => {
 
       metrics.incReconnectAttempts('network_error');
 
-      expect(sink.getCounter('sse_client_reconnect_attempts_total', { reason: 'network_error' })).toBe(1);
+      expect(
+        sink.getCounter('sse_client_reconnect_attempts_total', { reason: 'network_error' })
+      ).toBe(1);
     });
   });
 
@@ -105,8 +107,12 @@ describe('ClientMetrics', () => {
       metrics.incReconnectAttempts('network_error');
       metrics.incReconnectAttempts('server_close');
 
-      expect(sink.getCounter('sse_client_reconnect_attempts_total', { reason: 'network_error' })).toBe(2);
-      expect(sink.getCounter('sse_client_reconnect_attempts_total', { reason: 'server_close' })).toBe(1);
+      expect(
+        sink.getCounter('sse_client_reconnect_attempts_total', { reason: 'network_error' })
+      ).toBe(2);
+      expect(
+        sink.getCounter('sse_client_reconnect_attempts_total', { reason: 'server_close' })
+      ).toBe(1);
     });
   });
 
@@ -128,8 +134,12 @@ describe('ClientMetrics', () => {
       metrics.incResumeFailure('event_not_found');
       metrics.incResumeFailure('buffer_expired');
 
-      expect(sink.getCounter('sse_client_resume_failure_total', { reason: 'event_not_found' })).toBe(1);
-      expect(sink.getCounter('sse_client_resume_failure_total', { reason: 'buffer_expired' })).toBe(1);
+      expect(
+        sink.getCounter('sse_client_resume_failure_total', { reason: 'event_not_found' })
+      ).toBe(1);
+      expect(sink.getCounter('sse_client_resume_failure_total', { reason: 'buffer_expired' })).toBe(
+        1
+      );
     });
   });
 
@@ -142,8 +152,12 @@ describe('ClientMetrics', () => {
       metrics.incDuplicateEvents('domain.user.created');
       metrics.incDuplicateEvents('domain.order.placed');
 
-      expect(sink.getCounter('sse_client_duplicate_events_total', { type: 'domain.user.created' })).toBe(2);
-      expect(sink.getCounter('sse_client_duplicate_events_total', { type: 'domain.order.placed' })).toBe(1);
+      expect(
+        sink.getCounter('sse_client_duplicate_events_total', { type: 'domain.user.created' })
+      ).toBe(2);
+      expect(
+        sink.getCounter('sse_client_duplicate_events_total', { type: 'domain.order.placed' })
+      ).toBe(1);
     });
   });
 
@@ -161,12 +175,12 @@ describe('ClientMetrics', () => {
 
     it('should calculate lag from timestamp', () => {
       const metrics = createClientMetrics();
-      
+
       const now = Date.now();
       const eventTs = new Date(now - 500).toISOString();
-      
+
       const lag = metrics.calculateLag(eventTs);
-      
+
       // Should be approximately 500ms (allow some tolerance)
       expect(lag).toBeGreaterThanOrEqual(500);
       expect(lag).toBeLessThan(600);
@@ -277,7 +291,9 @@ describe('ClientMetrics', () => {
 
       metrics.incConnectionsClosed('client_close');
 
-      expect(sink.getCounter('sse_client_connections_closed_total', { reason: 'client_close' })).toBe(1);
+      expect(
+        sink.getCounter('sse_client_connections_closed_total', { reason: 'client_close' })
+      ).toBe(1);
     });
 
     it('should set connection state gauge', () => {

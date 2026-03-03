@@ -33,13 +33,13 @@ describe('SSE Connector Integration', () => {
 
   it('should transition to OPEN state on successful connect', async () => {
     const states = [];
-    
+
     const connector = connectSSE(`http://localhost:${port}/stream`, {
       onStateChange: ({ current }) => states.push(current),
       autoReconnect: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     expect(connector.getState()).toBe(ConnectionState.OPEN);
     expect(states).toContain(ConnectionState.CONNECTING);
@@ -50,14 +50,14 @@ describe('SSE Connector Integration', () => {
 
   it('should transition to CLOSED on stop()', async () => {
     const states = [];
-    
+
     const connector = connectSSE(`http://localhost:${port}/stream`, {
       onStateChange: ({ current }) => states.push(current),
       autoReconnect: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
     connector.stop();
 
     expect(connector.getState()).toBe(ConnectionState.CLOSED);
@@ -66,7 +66,7 @@ describe('SSE Connector Integration', () => {
 
   it('should fire onStateChange callback on transitions', async () => {
     const transitions = [];
-    
+
     const connector = connectSSE(`http://localhost:${port}/stream`, {
       onStateChange: (event) => {
         transitions.push({
@@ -78,7 +78,7 @@ describe('SSE Connector Integration', () => {
       autoReconnect: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
     connector.stop();
 
     // Should have: IDLE→CONNECTING, CONNECTING→OPEN, OPEN→CLOSED (forced)
@@ -92,10 +92,10 @@ describe('SSE Connector Integration', () => {
       autoReconnect: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     const stats = connector.getStats();
-    
+
     expect(stats.stateMachine).toBeDefined();
     expect(stats.stateMachine.transitionCount).toBeGreaterThanOrEqual(2);
     expect(stats.stateMachine.timeInState).toBeDefined();
@@ -108,19 +108,19 @@ describe('SSE Connector Integration', () => {
       autoReconnect: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
     connector.stop();
-    
+
     expect(connector.stopped).toBe(true);
     expect(connector.getState()).toBe(ConnectionState.CLOSED);
 
     // Trying to connect again should work (reset)
     connector.connect();
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
     expect(connector.getState()).toBe(ConnectionState.OPEN);
-    
+
     connector.stop();
   });
 
@@ -142,7 +142,7 @@ describe('SSE Connector Integration', () => {
     await promise;
 
     // All events should be received in OPEN state
-    const openStateEvents = events.filter(e => e.state === ConnectionState.OPEN);
+    const openStateEvents = events.filter((e) => e.state === ConnectionState.OPEN);
     expect(openStateEvents.length).toBe(events.length);
 
     connector.stop();
@@ -153,14 +153,14 @@ describe('SSE Connector Integration', () => {
       autoReconnect: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
     const sm = connector.getStateMachine();
     const history = sm.getHistory();
 
     expect(history.length).toBeGreaterThanOrEqual(2);
     expect(history[0].from).toBe(ConnectionState.IDLE);
-    
+
     connector.stop();
   });
 });

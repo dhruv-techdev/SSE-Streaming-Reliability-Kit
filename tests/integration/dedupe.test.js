@@ -11,9 +11,9 @@ describe('Client Dedupe Integration', () => {
 
   beforeAll(async () => {
     serverProcess = spawn('node', ['server/src/server.js'], {
-      env: { 
-        ...process.env, 
-        PORT: port, 
+      env: {
+        ...process.env,
+        PORT: port,
         NODE_ENV: 'test',
         SSE_TICK_INTERVAL: '200',
         SSE_HEARTBEAT_INTERVAL: '60000',
@@ -43,7 +43,7 @@ describe('Client Dedupe Integration', () => {
       enableLivenessCheck: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     expect(connector.options.enableDedupe).toBe(true);
     expect(connector.getDedupeCache()).toBeDefined();
@@ -57,7 +57,7 @@ describe('Client Dedupe Integration', () => {
       enableLivenessCheck: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     const stats = connector.getStats();
     expect(stats.duplicatesIgnored).toBeDefined();
@@ -72,10 +72,10 @@ describe('Client Dedupe Integration', () => {
       enableLivenessCheck: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     const stats = connector.getStats();
-    
+
     expect(stats.dedupe.size).toBeGreaterThanOrEqual(0);
     expect(stats.dedupe.maxSize).toBe(1000);
     expect(stats.dedupe.totalChecked).toBeGreaterThan(0);
@@ -85,7 +85,7 @@ describe('Client Dedupe Integration', () => {
 
   it('should fire onDuplicate callback (SSRK-150)', async () => {
     const duplicates = [];
-    
+
     const connector = connectSSE(`http://localhost:${port}/stream`, {
       autoReconnect: false,
       enableLivenessCheck: false,
@@ -95,12 +95,12 @@ describe('Client Dedupe Integration', () => {
     });
 
     // Wait for events
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     // Manually add a duplicate to the cache to simulate
     const cache = connector.getDedupeCache();
     const testEvent = { event_id: 'test-dup-event', type: 'domain.test', ts: '', payload: {} };
-    
+
     // Simulate receiving the same event twice
     cache.isDuplicate(testEvent);
     cache.isDuplicate(testEvent);
@@ -118,7 +118,7 @@ describe('Client Dedupe Integration', () => {
       dedupeMaxSize: 50,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     const cache = connector.getDedupeCache();
     expect(cache.maxSize).toBe(50);
@@ -133,7 +133,7 @@ describe('Client Dedupe Integration', () => {
       enableDedupe: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     expect(connector.options.enableDedupe).toBe(false);
 
@@ -146,7 +146,7 @@ describe('Client Dedupe Integration', () => {
       enableLivenessCheck: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     const cache = connector.getDedupeCache();
     expect(cache.size).toBeGreaterThan(0);
@@ -169,12 +169,12 @@ describe('Client Dedupe Integration', () => {
     });
 
     // Start with short heartbeat interval
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     // Heartbeats should not be in cache
     const cache = connector.getDedupeCache();
     const stats = cache.getStats();
-    
+
     // All cached events should be domain events, not heartbeats
     // (This is hard to test directly without controlling server)
     expect(stats.totalAdded).toBeGreaterThanOrEqual(0);
@@ -188,13 +188,13 @@ describe('Client Dedupe Integration', () => {
       enableLivenessCheck: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     const stats = connector.getStats();
-    
+
     // eventsReceived >= eventsProcessed (difference is duplicates)
     expect(stats.eventsReceived).toBeGreaterThanOrEqual(stats.eventsProcessed);
-    
+
     // In normal flow without replay, should be equal (no duplicates from server)
     expect(stats.eventsReceived).toBe(stats.eventsProcessed);
 
@@ -208,10 +208,10 @@ describe('Client Dedupe Integration', () => {
       dedupeMaxSize: 5, // Very small cache
     });
 
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const cache = connector.getDedupeCache();
-    
+
     // Cache should never exceed maxSize
     expect(cache.size).toBeLessThanOrEqual(5);
 

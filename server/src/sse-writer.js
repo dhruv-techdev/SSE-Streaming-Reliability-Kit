@@ -21,7 +21,7 @@ export class SSEWriter {
     this.onClose = options.onClose || (() => {});
     this.onError = options.onError || (() => {});
     this.connectionId = options.connectionId || 'unknown';
-    
+
     // Heartbeat tracking (SSRK-118)
     this.heartbeatCount = 0;
   }
@@ -51,13 +51,13 @@ export class SSEWriter {
    */
   safeWrite(data) {
     if (!this.isOpen) return false;
-    
+
     try {
       if (this.res.writableEnded || this.res.destroyed) {
         this.handleWriteError(new Error('Socket closed'), 'write');
         return false;
       }
-      
+
       this.res.write(data);
       return true;
     } catch (err) {
@@ -83,20 +83,20 @@ export class SSEWriter {
    */
   sendEvent(envelope) {
     if (!this.isOpen) return false;
-    
+
     const sse = encodeSSE(envelope);
     const success = this.safeWrite(sse);
-    
+
     if (success) {
       this.eventCount++;
       this.lastEventId = envelope.event_id;
-      
+
       // Track heartbeats separately (SSRK-118)
       if (envelope.type === 'system.heartbeat') {
         this.heartbeatCount++;
       }
     }
-    
+
     return success;
   }
 
@@ -148,21 +148,21 @@ export class SSEWriter {
    */
   close(reason = 'stream_ended') {
     if (!this.isOpen) return;
-    
+
     try {
       this.sendControl('close', { reason });
     } catch (err) {
       // Ignore - socket may already be dead
     }
-    
+
     this.isOpen = false;
-    
+
     try {
       this.res.end();
     } catch (err) {
       // Ignore - socket may already be dead
     }
-    
+
     this.onClose(reason);
   }
 

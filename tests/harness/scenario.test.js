@@ -24,10 +24,7 @@ describe('Scenario Definition (SSRK-192)', () => {
     it('should validate correct scenario', () => {
       const scenario = {
         name: 'test-scenario',
-        steps: [
-          { type: StepType.CONNECT },
-          { type: StepType.WAIT_CONNECTED },
-        ],
+        steps: [{ type: StepType.CONNECT }, { type: StepType.WAIT_CONNECTED }],
       };
 
       const result = validateScenario(scenario);
@@ -63,7 +60,7 @@ describe('Scenario Definition (SSRK-192)', () => {
 
       const result = validateScenario(scenario);
       expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes('Step 0 must have a type'))).toBe(true);
+      expect(result.errors.some((e) => e.includes('Step 0 must have a type'))).toBe(true);
     });
   });
 
@@ -92,10 +89,7 @@ describe('Scenario Definition (SSRK-192)', () => {
           client: { autoReconnect: true },
           server: { tickInterval: 100 },
         },
-        steps: [
-          { type: StepType.CONNECT },
-          { type: StepType.WAIT_EVENTS, count: 5 },
-        ],
+        steps: [{ type: StepType.CONNECT }, { type: StepType.WAIT_EVENTS, count: 5 }],
         expected: {
           finalState: 'open',
           minEventsReceived: 5,
@@ -121,10 +115,10 @@ describe('Scenario Definition (SSRK-192)', () => {
 describe('Scenario Runner (SSRK-191)', () => {
   // Note: Integration tests for the runner are in tests/harness/runner.test.js
   // These unit tests verify the scenario format
-  
+
   it('should export ResultStatus', async () => {
     const { ResultStatus } = await import('../../harness/src/runner.js');
-    
+
     expect(ResultStatus.PASSED).toBe('PASSED');
     expect(ResultStatus.FAILED).toBe('FAILED');
     expect(ResultStatus.TIMEOUT).toBe('TIMEOUT');

@@ -7,7 +7,15 @@
       "Bash(npx vitest:*)",
       "Bash(grep -n \"CONTROL_OPEN\\\\|CONTROL_CLOSE\\\\|CONTROL_RECONNECT\" shared/src/*.js)",
       "Bash(grep -n \"port.*308\\\\|PORT.*308\\\\|= 308\" tests/integration/*.test.js)",
-      "Bash(node -e \":*)"
+      "Bash(node -e \":*)",
+      "Bash(npm run harness list)",
+      "Bash(node -e \"import\\(''./shared/src/schema.js''\\).catch\\(e => console.log\\(''Error:'', e.message, e.stack\\)\\)\")",
+      "Bash(node -e \"import\\(''ajv''\\).then\\(m => { const Ajv = m.default; const ajv = new Ajv\\({allErrors: true}\\); console.log\\(''opts.code:'', JSON.stringify\\(ajv.opts.code\\)\\) }\\).catch\\(e => console.log\\(''Error:'', e.message\\)\\)\")",
+      "Bash(ls node_modules/ajv*)",
+      "Bash(node -e \"import\\(''./shared/src/schema.js''\\).then\\(\\(\\) => console.log\\(''OK''\\)\\).catch\\(e => console.log\\(''Error:'', e.message\\)\\)\")",
+      "Bash(PORT=3098 timeout 5 node server/src/server.js)",
+      "Bash(node -e \"import\\(''globals''\\).then\\(m => console.log\\(Object.keys\\(m.default\\).slice\\(0, 10\\)\\)\\)\")",
+      "Bash(npm run harness:all)"
     ]
   }
 }

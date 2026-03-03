@@ -9,7 +9,7 @@ export default defineScenario({
   description: 'Validates client recovers when server restarts',
   timeout: 45000,
   tags: ['reconnect', 'restart', 'recovery'],
-  
+
   config: {
     client: {
       autoReconnect: true,
@@ -30,23 +30,23 @@ export default defineScenario({
     { type: StepType.CONNECT },
     { type: StepType.WAIT_CONNECTED, timeout: 5000 },
     { type: StepType.WAIT_EVENTS, count: 3, timeout: 5000 },
-    
+
     // Full server restart
     { type: StepType.RESTART_SERVER },
-    
+
     // Wait for reconnection
     { type: StepType.WAIT_RECONNECT, timeout: 15000 },
     { type: StepType.WAIT_CONNECTED, timeout: 5000 },
-    
+
     // Verify events continue flowing
     { type: StepType.WAIT_EVENTS, count: 3, timeout: 5000 },
-    
+
     // Second restart to verify repeated recovery
     { type: StepType.RESTART_SERVER },
     { type: StepType.WAIT_RECONNECT, timeout: 15000 },
     { type: StepType.WAIT_CONNECTED, timeout: 5000 },
     { type: StepType.WAIT_EVENTS, count: 2, timeout: 5000 },
-    
+
     // Final state check
     { type: StepType.ASSERT_STATE, state: 'open' },
     {

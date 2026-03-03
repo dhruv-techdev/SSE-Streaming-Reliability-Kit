@@ -22,7 +22,7 @@ describe('Auto-Reconnect Integration', () => {
           resolve();
         }
       });
-      
+
       setTimeout(resolve, 2000);
     });
   };
@@ -51,7 +51,7 @@ describe('Auto-Reconnect Integration', () => {
       autoReconnect: true,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     expect(connector.connected).toBe(true);
     expect(connector.getState()).toBe(ConnectionState.OPEN);
@@ -61,7 +61,7 @@ describe('Auto-Reconnect Integration', () => {
 
   it('should fire onRetry callback when retry is scheduled', async () => {
     const retries = [];
-    
+
     // Connect to non-existent server
     const connector = connectSSE(`http://localhost:${port + 999}/stream`, {
       retryPolicy: {
@@ -76,7 +76,7 @@ describe('Auto-Reconnect Integration', () => {
     });
 
     // Wait for retries to happen
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     expect(retries.length).toBeGreaterThan(0);
     expect(retries[0]).toHaveProperty('attempt');
@@ -94,7 +94,7 @@ describe('Auto-Reconnect Integration', () => {
       },
     });
 
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     // Should have reset after successful connection
     const stats = connector.getStats();
@@ -111,10 +111,10 @@ describe('Auto-Reconnect Integration', () => {
       },
     });
 
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     const stats = connector.getStats();
-    
+
     expect(stats).toHaveProperty('reconnect');
     expect(stats.reconnect).toHaveProperty('attempt');
     expect(stats.reconnect).toHaveProperty('policyConfig');
@@ -145,7 +145,7 @@ describe('Auto-Reconnect Integration', () => {
 
   it('should not reconnect on manual stop()', async () => {
     const retries = [];
-    
+
     const connector = connectSSE(`http://localhost:${port}/stream`, {
       retryPolicy: {
         baseDelayMs: 100,
@@ -155,13 +155,13 @@ describe('Auto-Reconnect Integration', () => {
       onRetry: (info) => retries.push(info),
     });
 
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
     expect(connector.connected).toBe(true);
 
     connector.stop();
 
     // Wait to ensure no retries happen
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     expect(retries.length).toBe(0);
     expect(connector.getState()).toBe(ConnectionState.CLOSED);
@@ -169,7 +169,7 @@ describe('Auto-Reconnect Integration', () => {
 
   it('should transition through correct states during reconnect', async () => {
     const states = [];
-    
+
     // Connect to non-existent server first
     const connector = connectSSE(`http://localhost:${port + 888}/stream`, {
       retryPolicy: {
@@ -182,7 +182,7 @@ describe('Auto-Reconnect Integration', () => {
     });
 
     // Wait for state transitions
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     // Should see: connecting -> error -> retrying -> connecting -> error...
     expect(states).toContain(ConnectionState.CONNECTING);

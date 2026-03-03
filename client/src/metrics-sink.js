@@ -17,12 +17,14 @@ export class MetricsSink {
   incOutOfOrderDropped() {}
   incEventsReceived() {}
   incEventsProcessed() {}
-  
+
   // Observations
   observeEventLag(lagMs) {}
-  
+
   // Export
-  getMetrics() { return {}; }
+  getMetrics() {
+    return {};
+  }
   reset() {}
 }
 
@@ -46,9 +48,7 @@ export class ConsoleSink extends MetricsSink {
   }
 
   _log(metric, value, labels = {}) {
-    const labelStr = Object.keys(labels).length > 0 
-      ? ` ${JSON.stringify(labels)}` 
-      : '';
+    const labelStr = Object.keys(labels).length > 0 ? ` ${JSON.stringify(labels)}` : '';
     console[this._logLevel](`${this._prefix} ${metric}: ${value}${labelStr}`);
   }
 
@@ -108,11 +108,11 @@ export class InMemoryMetricsSink extends MetricsSink {
       events_received_total: 0,
       events_processed_total: 0,
     };
-    
+
     this._observations = {
       event_lag_ms: [],
     };
-    
+
     this._startTime = Date.now();
   }
 
@@ -193,7 +193,7 @@ export class InMemoryMetricsSink extends MetricsSink {
       value: lagMs,
       timestamp: Date.now(),
     });
-    
+
     // Keep last 1000 observations
     if (this._observations.event_lag_ms.length > 1000) {
       this._observations.event_lag_ms.shift();
@@ -204,14 +204,14 @@ export class InMemoryMetricsSink extends MetricsSink {
    * Get event lag statistics
    */
   getEventLagStats() {
-    const lags = this._observations.event_lag_ms.map(o => o.value);
+    const lags = this._observations.event_lag_ms.map((o) => o.value);
     if (lags.length === 0) {
       return { count: 0, min: 0, max: 0, avg: 0, p50: 0, p95: 0, p99: 0 };
     }
 
     const sorted = [...lags].sort((a, b) => a - b);
     const sum = lags.reduce((a, b) => a + b, 0);
-    
+
     return {
       count: lags.length,
       min: sorted[0],

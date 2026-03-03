@@ -12,9 +12,9 @@ describe('Client Liveness Detection Integration', () => {
   beforeAll(async () => {
     // Start server with 2 second heartbeat for faster testing
     serverProcess = spawn('node', ['server/src/server.js'], {
-      env: { 
-        ...process.env, 
-        PORT: port, 
+      env: {
+        ...process.env,
+        PORT: port,
         NODE_ENV: 'test',
         SSE_HEARTBEAT_INTERVAL: '2000',
         SSE_TICK_INTERVAL: '10000', // Slow ticks
@@ -47,10 +47,10 @@ describe('Client Liveness Detection Integration', () => {
     });
 
     // Wait for connection and heartbeat
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    await new Promise((resolve) => setTimeout(resolve, 3000));
 
     const monitor = connector.getLivenessMonitor();
-    
+
     expect(monitor.lastHeartbeatAt).not.toBeNull();
     expect(monitor.hasReceivedHeartbeat).toBe(true);
 
@@ -63,10 +63,10 @@ describe('Client Liveness Detection Integration', () => {
       autoReconnect: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    await new Promise((resolve) => setTimeout(resolve, 3000));
 
     const stats = connector.getStats();
-    
+
     expect(stats.liveness).toBeDefined();
     expect(stats.liveness.isRunning).toBe(true);
     expect(stats.liveness.heartbeatsReceived).toBeGreaterThan(0);
@@ -80,7 +80,7 @@ describe('Client Liveness Detection Integration', () => {
       autoReconnect: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     const monitor = connector.getLivenessMonitor();
     expect(monitor.isRunning).toBe(true);
@@ -104,7 +104,7 @@ describe('Client Liveness Detection Integration', () => {
     });
 
     // Wait within grace period
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    await new Promise((resolve) => setTimeout(resolve, 3000));
 
     expect(livenessFailure).toBe(false);
 
@@ -114,9 +114,9 @@ describe('Client Liveness Detection Integration', () => {
   it('should fire onLivenessFailure callback (SSRK-125)', async () => {
     // This test simulates missed heartbeat by using very short timeout
     // Note: In real scenario, server would stop sending heartbeats
-    
+
     let failureInfo = null;
-    
+
     const connector = connectSSE(`http://localhost:${port}/stream`, {
       enableLivenessCheck: true,
       livenessTimeoutMs: 500, // Very short
@@ -128,14 +128,14 @@ describe('Client Liveness Detection Integration', () => {
     });
 
     // Wait for heartbeat then wait for timeout
-    await new Promise(resolve => setTimeout(resolve, 3500));
+    await new Promise((resolve) => setTimeout(resolve, 3500));
 
     // If heartbeat interval is 2s and timeout is 500ms, should fail
     // unless heartbeat comes in time
     // This depends on timing - may or may not trigger
 
     connector.stop();
-    
+
     // Just verify the connector can handle liveness checks
     const stats = connector.getStats();
     expect(stats.liveness).toBeDefined();
@@ -147,19 +147,19 @@ describe('Client Liveness Detection Integration', () => {
       autoReconnect: true,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const monitor = connector.getLivenessMonitor();
     const initialHeartbeats = monitor.getStats().heartbeatsReceived;
 
     // Force disconnect and reconnect
     connector.disconnect();
-    
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
     connector.connect();
 
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    await new Promise((resolve) => setTimeout(resolve, 3000));
 
     // Monitor should be reset and running again
     expect(monitor.isRunning).toBe(true);
@@ -173,7 +173,7 @@ describe('Client Liveness Detection Integration', () => {
       autoReconnect: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     const monitor = connector.getLivenessMonitor();
     expect(monitor.isRunning).toBe(false);

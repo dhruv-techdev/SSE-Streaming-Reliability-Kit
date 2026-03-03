@@ -49,14 +49,15 @@ export class ReconnectManager {
    * @param {Object} options - Configuration
    */
   constructor(options = {}) {
-    this.policy = options.retryPolicy instanceof RetryPolicy
-      ? options.retryPolicy
-      : new RetryPolicy(options.retryPolicy || {});
-    
+    this.policy =
+      options.retryPolicy instanceof RetryPolicy
+        ? options.retryPolicy
+        : new RetryPolicy(options.retryPolicy || {});
+
     this.onRetry = options.onRetry || (() => {});
     this.onReconnect = options.onReconnect || (() => {});
     this.onGiveUp = options.onGiveUp || (() => {});
-    
+
     this._attempt = 0;
     this._timer = null;
     this._isActive = false;
@@ -65,7 +66,7 @@ export class ReconnectManager {
     this._firstFailureTime = null;
     this._givenUp = false;
     this._giveUpReason = null;
-    
+
     this._debug = options.debug || false;
   }
 
@@ -121,7 +122,9 @@ export class ReconnectManager {
 
     if (!shouldRetry) {
       if (this._debug) {
-        console.log(`[RECONNECT] Giving up: ${stopReason} (attempts: ${this._attempt}, elapsed: ${elapsedMs}ms)`);
+        console.log(
+          `[RECONNECT] Giving up: ${stopReason} (attempts: ${this._attempt}, elapsed: ${elapsedMs}ms)`
+        );
       }
       this._giveUp(stopReason, reason, error);
       return false;
@@ -133,7 +136,9 @@ export class ReconnectManager {
     this._isActive = true;
 
     if (this._debug) {
-      console.log(`[RECONNECT] Scheduling attempt ${this._attempt + 1} in ${delay}ms (reason: ${reason}, elapsed: ${elapsedMs}ms)`);
+      console.log(
+        `[RECONNECT] Scheduling attempt ${this._attempt + 1} in ${delay}ms (reason: ${reason}, elapsed: ${elapsedMs}ms)`
+      );
     }
 
     this.onRetry({
@@ -149,11 +154,11 @@ export class ReconnectManager {
     this._timer = setTimeout(() => {
       this._attempt++;
       this._isActive = false;
-      
+
       if (this._debug) {
         console.log(`[RECONNECT] Executing attempt ${this._attempt}`);
       }
-      
+
       this.onReconnect({
         attempt: this._attempt,
         reason: this._lastReason,
@@ -171,7 +176,7 @@ export class ReconnectManager {
     this._givenUp = true;
     this._giveUpReason = giveUpReason;
     this._isActive = false;
-    
+
     this._clearTimer();
 
     this.onGiveUp({
@@ -280,5 +285,4 @@ export function createReconnectManager(options) {
   return new ReconnectManager(options);
 }
 
-export { GiveUpReason };
 export default ReconnectManager;

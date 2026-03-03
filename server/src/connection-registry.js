@@ -9,7 +9,7 @@ class ConnectionRegistry {
     this.connections = new Map();
     this.maxConnections = options.maxConnections || 1000;
     this.onConnectionChange = options.onConnectionChange || (() => {});
-    
+
     // Stats
     this.stats = {
       totalConnections: 0,
@@ -164,7 +164,7 @@ class ConnectionRegistry {
    */
   closeAll(reason = DisconnectReason.SERVER_SHUTDOWN) {
     this.log('SHUTDOWN', 'all', { count: this.connections.size, reason });
-    
+
     for (const id of this.connections.keys()) {
       this.unregister(id, reason);
     }
@@ -180,11 +180,11 @@ class ConnectionRegistry {
       connectionId,
       ...data,
     };
-    
+
     // Avoid logging sensitive data
     delete entry.request;
     delete entry.response;
-    
+
     console.log(`[REGISTRY] [${event}] ${connectionId}`, JSON.stringify(data));
   }
 }

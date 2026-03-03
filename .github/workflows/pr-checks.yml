@@ -1,0 +1,88 @@
+# PR-specific checks
+name: PR Checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+jobs:
+  # ============================================================
+  # PR Title & Description Check
+  # ============================================================
+  pr-validation:
+    name: PR Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check PR title
+        run: |
+          TITLE="${{ github.event.pull_request.title }}"
+
+          # Check title is not empty and has reasonable length
+          if [ ${#TITLE} -lt 10 ]; then
+            echo "❌ PR title is too short (minimum 10 characters)"
+            exit 1
+          fi
+
+          if [ ${#TITLE} -gt 100 ]; then
+            echo "❌ PR title is too long (maximum 100 characters)"
+            exit 1
+          fi
+
+          echo "✓ PR title looks good: $TITLE"
+
+      - name: Check PR description
+        run: |
+          BODY="${{ github.event.pull_request.body }}"
+
+          if [ -z "$BODY" ] || [ ${#BODY} -lt 20 ]; then
+            echo "⚠️ PR description is very short. Please add more context."
+          else
+            echo "✓ PR has description"
+          fi
+
+  # ============================================================
+  # Check for required files
+  # ============================================================
+  file-checks:
+    name: File Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for console.log in production code
+        run: |
+          echo "Checking for debug statements..."
+
+          # Allow console.log in specific files
+          ALLOWED_FILES="server/src/server.js|client/src/demo-node.js|harness/src/cli.js|harness/src/reporter.js"
+
+          # Find console.log statements (excluding allowed files and tests)
+          FOUND=$(grep -r "console\.log" --include="*.js" \
+            --exclude-dir=node_modules \
+            --exclude-dir=tests \
+            -l . 2>/dev/null | grep -v -E "$ALLOWED_FILES" || true)
+
+          if [ -n "$FOUND" ]; then
+            echo "⚠️ Found console.log in:"
+            echo "$FOUND"
+            echo "Consider using structured logging instead"
+          else
+            echo "✓ No unexpected console.log statements"
+          fi
+
+      - name: Check for TODO/FIXME comments
+        run: |
+          echo "Checking for TODO/FIXME..."
+
+          TODOS=$(grep -rn "TODO\|FIXME" --include="*.js" \
+            --exclude-dir=node_modules . 2>/dev/null || true)
+
+          if [ -n "$TODOS" ]; then
+            echo "��� Found TODO/FIXME comments (consider addressing):"
+            echo "$TODOS"
+          else
+            echo "✓ No TODO/FIXME comments"
+          fi

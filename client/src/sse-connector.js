@@ -13,18 +13,27 @@ import {
   DisconnectReason,
   CannotResumeReason,
 } from '../../shared/src/index.js';
-import {
-  StateMachine,
-  ConnectionState,
-  TransitionReason,
-} from './state-machine.js';
+import { StateMachine, ConnectionState, TransitionReason } from './state-machine.js';
 import { RetryPolicy, DEFAULT_RETRY_POLICY } from './retry-policy.js';
 import { ReconnectManager, RECONNECTABLE_REASONS, GiveUpReason } from './reconnect-manager.js';
 import { LivenessMonitor, createLivenessMonitor } from './liveness-monitor.js';
 import { EventIdStore, createEventIdStore, MemoryStorage } from './event-id-store.js';
 import { DedupeCache, createDedupeCache, DEDUPE_DEFAULTS } from './dedupe-cache.js';
-import { OrderingGuard, createOrderingGuard, OrderingRule, OutOfOrderPolicy } from './ordering-guard.js';
-import { ClientMetrics, createClientMetrics, MetricsSink, ConsoleMetricsSink, InMemoryMetricsSink, createConsoleSink, createInMemorySink } from './client-metrics.js';
+import {
+  OrderingGuard,
+  createOrderingGuard,
+  OrderingRule,
+  OutOfOrderPolicy,
+} from './ordering-guard.js';
+import {
+  ClientMetrics,
+  createClientMetrics,
+  MetricsSink,
+  ConsoleMetricsSink,
+  InMemoryMetricsSink,
+  createConsoleSink,
+  createInMemorySink,
+} from './client-metrics.js';
 import { createClientLogger } from './client-logger.js';
 
 /**
@@ -47,7 +56,7 @@ export class SSEConnector {
    */
   constructor(url, options = {}) {
     this.url = new URL(url);
-    
+
     // Build retry policy
     const retryPolicyConfig = options.retryPolicy || {
       baseDelayMs: options.retryInterval || DEFAULT_RETRY_POLICY.baseDelayMs,
@@ -60,89 +69,89 @@ export class SSEConnector {
     this.options = {
       // Timeouts
       timeout: options.timeout || Defaults.CLIENT_TIMEOUT_MS,
-      
+
       // Liveness detection
       livenessTimeoutMs: options.livenessTimeoutMs || Defaults.LIVENESS_TIMEOUT_MS,
       livenessGracePeriodMs: options.livenessGracePeriodMs || Defaults.LIVENESS_GRACE_PERIOD_MS,
       enableLivenessCheck: options.enableLivenessCheck !== false,
-      
+
       // Last-Event-ID persistence
       persistLastEventId: options.persistLastEventId || false,
       eventIdStorage: options.eventIdStorage || null,
       streamId: options.streamId || 'default',
-      
+
       // Cannot-resume fallback behavior
       cannotResumeFallback: options.cannotResumeFallback || CannotResumeFallback.START_FRESH,
-      
+
       // Dedupe configuration
       enableDedupe: options.enableDedupe !== false,
       dedupeMaxSize: options.dedupeMaxSize || DEDUPE_DEFAULTS.MAX_SIZE,
       dedupeTtlMs: options.dedupeTtlMs || DEDUPE_DEFAULTS.TTL_MS,
-      
+
       // Ordering configuration
       enableOrdering: options.enableOrdering !== false,
       orderingRule: options.orderingRule || OrderingRule.SEQUENCE,
       outOfOrderPolicy: options.outOfOrderPolicy || OutOfOrderPolicy.DROP_WITH_CALLBACK,
-      
+
       // Idempotency guardrail hook
       shouldProcess: options.shouldProcess || null,
-      
+
       // Metrics configuration
       enableMetrics: options.enableMetrics !== false,
       metricsSink: options.metricsSink || null,
       trackEventLag: options.trackEventLag !== false,
-      
+
       // Correlation IDs (SSRK-187, SSRK-188)
       traceId: options.traceId || null,
-      
+
       // Logging configuration
       enableLogging: options.enableLogging !== false,
       logLevel: options.logLevel || 'info',
-      
+
       // Auto-reconnect
       autoReconnect: options.autoReconnect !== false,
-      
+
       // Headers
       headers: options.headers || {},
-      
+
       // Lifecycle callbacks
       onOpen: options.onOpen || (() => {}),
       onEvent: options.onEvent || (() => {}),
       onError: options.onError || (() => {}),
       onClose: options.onClose || (() => {}),
-      
+
       // State change callback
       onStateChange: options.onStateChange || null,
-      
+
       // Retry callback
       onRetry: options.onRetry || null,
-      
+
       // Give up callback
       onGiveUp: options.onGiveUp || null,
-      
+
       // Liveness failure callback
       onLivenessFailure: options.onLivenessFailure || null,
-      
+
       // Resume attempt callback
       onResumeAttempt: options.onResumeAttempt || null,
-      
+
       // Cannot resume callback
       onCannotResume: options.onCannotResume || null,
-      
+
       // Duplicate callback
       onDuplicate: options.onDuplicate || null,
-      
+
       // Out-of-order callback
       onOutOfOrder: options.onOutOfOrder || null,
-      
+
       // Reserved event handlers
       onHeartbeat: options.onHeartbeat || null,
       onControl: options.onControl || null,
       onSystemError: options.onSystemError || null,
-      
+
       // Validation
       validateEnvelope: options.validateEnvelope !== false,
-      
+
       // Debug logging
       debug: options.debug || false,
     };
@@ -213,11 +222,11 @@ export class SSEConnector {
     this._stopped = false;
     this._startFreshOnNextConnect = false;
     this._resumeAttemptPending = false;
-    
+
     // Correlation IDs (SSRK-188)
-    this._serverStreamId = null;  // Set from control.open
+    this._serverStreamId = null; // Set from control.open
     this._traceId = this.options.traceId;
-    
+
     // Stats
     this.stats = {
       eventsReceived: 0,
@@ -241,15 +250,15 @@ export class SSEConnector {
    */
   _getCorrelationFields() {
     const fields = {};
-    
+
     if (this._serverStreamId) {
       fields.stream_id = this._serverStreamId;
     }
-    
+
     if (this._traceId) {
       fields.trace_id = this._traceId;
     }
-    
+
     return fields;
   }
 
@@ -293,14 +302,14 @@ export class SSEConnector {
    */
   _handleDuplicate(info) {
     this.stats.duplicatesIgnored++;
-    
+
     if (this.options.enableMetrics) {
       this._metrics.incDuplicateEvents(info.type);
     }
-    
+
     // Log with correlation (SSRK-188)
     this._logger.duplicateDetected(info.event_id, info.type, this._getCorrelationFields());
-    
+
     if (this.options.onDuplicate) {
       this.options.onDuplicate({
         event_id: info.event_id,
@@ -315,13 +324,13 @@ export class SSEConnector {
    */
   _handleOutOfOrder(info) {
     this.stats.outOfOrderDropped++;
-    
+
     if (this.options.enableMetrics) {
       this._metrics.incOutOfOrderEvents();
     }
-    
+
     this._logger.outOfOrder(info.event_id, info.reason, this._getCorrelationFields());
-    
+
     if (this.options.onOutOfOrder) {
       this.options.onOutOfOrder({
         event_id: info.event_id,
@@ -341,11 +350,11 @@ export class SSEConnector {
     if (this.options.debug) {
       console.log(`[CONNECTOR] State: ${event.previous} → ${event.current} (${event.reason})`);
     }
-    
+
     if (this.options.enableMetrics) {
       this._metrics.setConnectionState(event.current);
     }
-    
+
     if (this.options.onStateChange) {
       this.options.onStateChange(event);
     }
@@ -385,7 +394,7 @@ export class SSEConnector {
     if (this._stopped) return;
 
     this.stats.reconnectCount++;
-    
+
     this._stateMachine.retrying();
     this._doConnect();
   }
@@ -427,13 +436,13 @@ export class SSEConnector {
    */
   _handleLivenessFailure(info) {
     if (this._stopped) return;
-    
+
     this.stats.livenessFailures++;
-    
+
     if (this.options.enableMetrics) {
       this._metrics.incLivenessFailures();
     }
-    
+
     this._logger.livenessFailure(info.elapsedMs, info.timeoutMs, this._getCorrelationFields());
 
     if (this.options.onLivenessFailure) {
@@ -454,13 +463,13 @@ export class SSEConnector {
     this.stats.cannotResumeCount++;
     this.stats.resumeFailures++;
     this._resumeAttemptPending = false;
-    
+
     const { code, reason, requestedId, action } = envelope.payload;
-    
+
     if (this.options.enableMetrics) {
       this._metrics.incResumeFailure(code || reason);
     }
-    
+
     // Log with correlation (SSRK-189)
     this._logger.resumeCannotResume(code || reason, requestedId, {
       ...this._getCorrelationFields(),
@@ -493,11 +502,11 @@ export class SSEConnector {
     if (this._resumeAttemptPending) {
       this.stats.resumeSuccesses++;
       this._resumeAttemptPending = false;
-      
+
       if (this.options.enableMetrics) {
         this._metrics.incResumeSuccess();
       }
-      
+
       // Log with correlation (SSRK-189)
       this._logger.resumeSuccess(eventCount, this._getCorrelationFields());
     }
@@ -508,13 +517,13 @@ export class SSEConnector {
    */
   _handleControlOpen(envelope) {
     const { stream_id, trace_id } = envelope.payload || {};
-    
+
     // Store server-assigned stream_id (SSRK-188)
     if (stream_id) {
       this._serverStreamId = stream_id;
       this._logger.setStreamId(stream_id);
     }
-    
+
     // Verify trace_id if we sent one
     if (trace_id && this._traceId && trace_id !== this._traceId) {
       this._logger.warn('correlation.mismatch', 'Server trace_id differs from client', {
@@ -536,19 +545,23 @@ export class SSEConnector {
       this._livenessMonitor.reset();
     }
 
-    if (this._stateMachine.is(ConnectionState.OPEN) || 
-        this._stateMachine.is(ConnectionState.CONNECTING)) {
+    if (
+      this._stateMachine.is(ConnectionState.OPEN) ||
+      this._stateMachine.is(ConnectionState.CONNECTING)
+    ) {
       return this;
     }
 
-    if (this._stateMachine.is(ConnectionState.IDLE) || 
-        this._stateMachine.is(ConnectionState.RETRYING)) {
+    if (
+      this._stateMachine.is(ConnectionState.IDLE) ||
+      this._stateMachine.is(ConnectionState.RETRYING)
+    ) {
       this._stateMachine.connect();
     }
-    
+
     // Log connecting (SSRK-188)
     this._logger.connecting(this.url.href, this._getCorrelationFields());
-    
+
     this._doConnect();
     return this;
   }
@@ -576,14 +589,14 @@ export class SSEConnector {
     if (this._stopped) return;
 
     const protocol = this.url.protocol === 'https:' ? https : http;
-    
+
     const requestOptions = {
       hostname: this.url.hostname,
       port: this.url.port || (this.url.protocol === 'https:' ? 443 : 80),
       path: this.url.pathname + this.url.search,
       method: 'GET',
       headers: {
-        'Accept': 'text/event-stream',
+        Accept: 'text/event-stream',
         'Cache-Control': 'no-cache',
         ...this.options.headers,
       },
@@ -596,15 +609,15 @@ export class SSEConnector {
 
     const lastEventId = this._startFreshOnNextConnect ? null : this._eventIdStore.get();
     this._startFreshOnNextConnect = false;
-    
+
     if (lastEventId) {
       requestOptions.headers['Last-Event-ID'] = lastEventId;
       this.stats.resumeAttempts++;
       this._resumeAttemptPending = true;
-      
+
       // Log resume attempt with correlation (SSRK-189)
       this._logger.resumeAttempt(lastEventId, this._getCorrelationFields());
-      
+
       if (this.options.onResumeAttempt) {
         this.options.onResumeAttempt({
           lastEventId,
@@ -624,7 +637,11 @@ export class SSEConnector {
     });
 
     this.request.on('timeout', () => {
-      this._handleError(new Error('Request timeout'), 'timeout', TransitionReason.CONNECTION_TIMEOUT);
+      this._handleError(
+        new Error('Request timeout'),
+        'timeout',
+        TransitionReason.CONNECTION_TIMEOUT
+      );
     });
 
     this.request.setTimeout(this.options.timeout);
@@ -656,7 +673,7 @@ export class SSEConnector {
     }
 
     this._reconnectManager.reset();
-    
+
     this._stateMachine.connected();
     this.stats.connectedAt = Date.now();
     this._resetTimeout();
@@ -666,8 +683,18 @@ export class SSEConnector {
     }
 
     if (this.options.enableLivenessCheck) {
-      this._livenessMonitor.reset();
+      if (this.stats.reconnectCount > 0) {
+        this._livenessMonitor.resetForReconnect();
+      } else {
+        this._livenessMonitor.reset();
+      }
       this._livenessMonitor.start();
+    }
+
+    // Stream sequence numbers may restart after reconnect; clear ordering markers
+    // so new live ticks are not dropped as out-of-order.
+    if (this.stats.reconnectCount > 0) {
+      this._orderingGuard.reset();
     }
 
     // Log open with correlation (SSRK-188)
@@ -686,18 +713,18 @@ export class SSEConnector {
     });
 
     let buffer = '';
-    
+
     res.on('data', (chunk) => {
       if (this._stopped) return;
-      
+
       this._resetTimeout();
       this.stats.bytesReceived += chunk.length;
-      
+
       buffer += chunk.toString();
-      
+
       const parts = buffer.split('\n\n');
       buffer = parts.pop() || '';
-      
+
       for (const part of parts) {
         if (part.trim()) {
           this._processEvent(part + '\n\n');
@@ -723,7 +750,7 @@ export class SSEConnector {
     if (this._stopped) return;
 
     const parsed = parseSSEChunk(raw);
-    
+
     if (parsed.id) {
       this._eventIdStore.set(parsed.id);
     }
@@ -737,7 +764,7 @@ export class SSEConnector {
     if (!parsed.data) return;
 
     const { envelope, error } = decodeSSE(parsed.data);
-    
+
     if (error) {
       this._handleParseError(error, raw);
       return;
@@ -752,13 +779,13 @@ export class SSEConnector {
     }
 
     this.stats.eventsReceived++;
-    
+
     if (this.options.enableMetrics) {
       this._metrics.incEventsReceived();
     }
-    
+
     this._livenessMonitor.recordEvent();
-    
+
     if (this.options.enableDedupe && this._dedupeCache.isDuplicate(envelope)) {
       return;
     }
@@ -769,19 +796,19 @@ export class SSEConnector {
         return;
       }
     }
-    
+
     this.stats.eventsProcessed++;
-    
+
     if (this.options.enableMetrics) {
       this._metrics.incEventsProcessed();
-      
+
       if (this.options.trackEventLag) {
         this._metrics.recordEventLagFromEnvelope(envelope);
       }
     }
-    
+
     this._eventIdStore.updateFromEvent(envelope);
-    
+
     this._routeEvent(envelope);
   }
 
@@ -799,7 +826,7 @@ export class SSEConnector {
 
     if (type === ReservedEventTypes.HEARTBEAT) {
       this._livenessMonitor.recordHeartbeat();
-      
+
       if (this.options.onHeartbeat) {
         this.options.onHeartbeat(envelope);
       }
@@ -833,6 +860,9 @@ export class SSEConnector {
     }
 
     if (type === 'control.replay_start' || type === 'control.replay_end') {
+      if (type === 'control.replay_start' && envelope.payload?.reason === 'no_replay_needed') {
+        this._handleResumeSuccess(0);
+      }
       if (type === 'control.replay_end') {
         const eventCount = envelope.payload?.eventCount || 0;
         this._handleResumeSuccess(eventCount);
@@ -857,7 +887,7 @@ export class SSEConnector {
    */
   _handleParseError(error, raw) {
     this._logger.parseError(error, raw, this._getCorrelationFields());
-    
+
     this.options.onError({
       type: 'parse_error',
       message: error,
@@ -870,7 +900,7 @@ export class SSEConnector {
    */
   _handleValidationError(errors, envelope) {
     this._logger.validationError(errors, envelope, this._getCorrelationFields());
-    
+
     this.options.onError({
       type: 'validation_error',
       message: 'Invalid envelope structure',
@@ -916,7 +946,7 @@ export class SSEConnector {
     this._livenessMonitor.stop();
 
     this._stateMachine.error(reason);
-    
+
     if (this.options.enableMetrics) {
       this._metrics.incConnectionsClosed(reason);
     }
@@ -930,10 +960,10 @@ export class SSEConnector {
   _attemptReconnect(reason, error = null) {
     if (this._stopped || !this.options.autoReconnect) {
       this._stateMachine.close(reason);
-      
+
       // Log close with correlation (SSRK-188)
       this._logger.close(reason, false, this._getCorrelationFields());
-      
+
       this.options.onClose({
         reason,
         willReconnect: false,
@@ -943,18 +973,18 @@ export class SSEConnector {
     }
 
     const willReconnect = this._reconnectManager.scheduleReconnect(reason, error);
-    
+
     if (willReconnect) {
       this._stateMachine.retry();
-      
+
       const retryInfo = this._reconnectManager.getRetryInfo();
-      
+
       // Log close with reconnect (SSRK-188)
       this._logger.close(reason, true, {
         ...this._getCorrelationFields(),
         retry_in: retryInfo.delay,
       });
-      
+
       this.options.onClose({
         reason,
         willReconnect: true,
@@ -1020,7 +1050,7 @@ export class SSEConnector {
     this._cleanup();
     this._stateMachine.forceClose(TransitionReason.USER_STOP);
     this.stats.disconnectedAt = Date.now();
-    
+
     // Log stop with correlation (SSRK-188)
     this._logger.stop('user_stop', this._getCorrelationFields());
   }
@@ -1194,9 +1224,28 @@ export { ConnectionState, TransitionReason } from './state-machine.js';
 export { RetryPolicy, RetryPolicies, DEFAULT_RETRY_POLICY } from './retry-policy.js';
 export { ReconnectManager, RECONNECTABLE_REASONS, GiveUpReason } from './reconnect-manager.js';
 export { LivenessMonitor, createLivenessMonitor } from './liveness-monitor.js';
-export { EventIdStore, createEventIdStore, MemoryStorage, FileStorage, LocalStorageAdapter } from './event-id-store.js';
+export {
+  EventIdStore,
+  createEventIdStore,
+  MemoryStorage,
+  FileStorage,
+  LocalStorageAdapter,
+} from './event-id-store.js';
 export { DedupeCache, createDedupeCache, DEDUPE_DEFAULTS } from './dedupe-cache.js';
-export { OrderingGuard, createOrderingGuard, OrderingRule, OutOfOrderPolicy } from './ordering-guard.js';
-export { ClientMetrics, createClientMetrics, MetricsSink, ConsoleMetricsSink, InMemoryMetricsSink, createConsoleSink, createInMemorySink } from './client-metrics.js';
+export {
+  OrderingGuard,
+  createOrderingGuard,
+  OrderingRule,
+  OutOfOrderPolicy,
+} from './ordering-guard.js';
+export {
+  ClientMetrics,
+  createClientMetrics,
+  MetricsSink,
+  ConsoleMetricsSink,
+  InMemoryMetricsSink,
+  createConsoleSink,
+  createInMemorySink,
+} from './client-metrics.js';
 
 export default SSEConnector;

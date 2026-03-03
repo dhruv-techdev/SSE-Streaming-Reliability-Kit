@@ -35,12 +35,16 @@ export function createClientLogger(options = {}) {
     },
 
     retryScheduled(attempt, delayMs, reason, details = {}) {
-      logger.info(LogEvent.CLIENT_RETRY_SCHEDULED, `Retry scheduled: attempt ${attempt} in ${delayMs}ms`, {
-        attempt,
-        delay_ms: delayMs,
-        reason,
-        ...details,
-      });
+      logger.info(
+        LogEvent.CLIENT_RETRY_SCHEDULED,
+        `Retry scheduled: attempt ${attempt} in ${delayMs}ms`,
+        {
+          attempt,
+          delay_ms: delayMs,
+          reason,
+          ...details,
+        }
+      );
     },
 
     giveUp(reason, attempts, elapsedMs, details = {}) {
@@ -69,10 +73,14 @@ export function createClientLogger(options = {}) {
 
     // Resume events (SSRK-179)
     resumeAttempt(lastEventId, details = {}) {
-      logger.info(LogEvent.RESUME_ATTEMPT, `Attempting resume from ${lastEventId?.slice(0, 20)}...`, {
-        last_event_id: lastEventId,
-        ...details,
-      });
+      logger.info(
+        LogEvent.RESUME_ATTEMPT,
+        `Attempting resume from ${lastEventId?.slice(0, 20)}...`,
+        {
+          last_event_id: lastEventId,
+          ...details,
+        }
+      );
     },
 
     resumeSuccess(eventCount, details = {}) {
@@ -99,11 +107,15 @@ export function createClientLogger(options = {}) {
 
     // Liveness events
     livenessFailure(elapsedMs, timeoutMs, details = {}) {
-      logger.warn(LogEvent.LIVENESS_FAILURE, `Liveness failure: ${elapsedMs}ms since last heartbeat`, {
-        elapsed_ms: elapsedMs,
-        timeout_ms: timeoutMs,
-        ...details,
-      });
+      logger.warn(
+        LogEvent.LIVENESS_FAILURE,
+        `Liveness failure: ${elapsedMs}ms since last heartbeat`,
+        {
+          elapsed_ms: elapsedMs,
+          timeout_ms: timeoutMs,
+          ...details,
+        }
+      );
     },
 
     // Dedupe/ordering events

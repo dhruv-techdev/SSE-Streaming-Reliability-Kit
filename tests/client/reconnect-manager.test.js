@@ -53,9 +53,9 @@ describe('ReconnectManager', () => {
       vi.advanceTimersByTime(200);
 
       expect(manager.attempt).toBe(2);
-      
+
       manager.reset();
-      
+
       expect(manager.attempt).toBe(0);
     });
   });
@@ -72,19 +72,21 @@ describe('ReconnectManager', () => {
       // Attempt 1
       manager.scheduleReconnect(TransitionReason.NETWORK_ERROR);
       vi.advanceTimersByTime(100);
-      
+
       // Attempt 2
       manager.scheduleReconnect(TransitionReason.NETWORK_ERROR);
       vi.advanceTimersByTime(200);
-      
+
       // Attempt 3 - should give up
       const scheduled = manager.scheduleReconnect(TransitionReason.NETWORK_ERROR);
-      
+
       expect(scheduled).toBe(false);
-      expect(onGiveUp).toHaveBeenCalledWith(expect.objectContaining({
-        reason: GiveUpReason.MAX_ATTEMPTS,
-        attempts: 2,
-      }));
+      expect(onGiveUp).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reason: GiveUpReason.MAX_ATTEMPTS,
+          attempts: 2,
+        })
+      );
     });
   });
 
@@ -92,10 +94,10 @@ describe('ReconnectManager', () => {
     it('should stop after maxRetryTimeMs', () => {
       const onGiveUp = vi.fn();
       manager = createReconnectManager({
-        retryPolicy: { 
-          baseDelayMs: 100, 
-          maxAttempts: 100,  // High limit
-          maxRetryTimeMs: 500,  // 500ms time limit
+        retryPolicy: {
+          baseDelayMs: 100,
+          maxAttempts: 100, // High limit
+          maxRetryTimeMs: 500, // 500ms time limit
           jitterPct: 0,
         },
         onGiveUp,
@@ -105,17 +107,19 @@ describe('ReconnectManager', () => {
       // First failure - starts the clock
       manager.scheduleReconnect(TransitionReason.NETWORK_ERROR);
       vi.advanceTimersByTime(100);
-      
+
       // Advance time beyond limit
       vi.advanceTimersByTime(500);
-      
+
       // Should give up due to time
       const scheduled = manager.scheduleReconnect(TransitionReason.NETWORK_ERROR);
-      
+
       expect(scheduled).toBe(false);
-      expect(onGiveUp).toHaveBeenCalledWith(expect.objectContaining({
-        reason: GiveUpReason.MAX_TIME,
-      }));
+      expect(onGiveUp).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reason: GiveUpReason.MAX_TIME,
+        })
+      );
     });
   });
 
@@ -130,13 +134,13 @@ describe('ReconnectManager', () => {
 
       manager.scheduleReconnect(TransitionReason.NETWORK_ERROR);
       vi.advanceTimersByTime(100);
-      
+
       // Hit limit
       manager.scheduleReconnect(TransitionReason.NETWORK_ERROR);
-      
+
       expect(manager.hasGivenUp).toBe(true);
       expect(manager.giveUpReason).toBe(GiveUpReason.MAX_ATTEMPTS);
-      
+
       // Further attempts should be rejected
       const result = manager.scheduleReconnect(TransitionReason.NETWORK_ERROR);
       expect(result).toBe(false);
@@ -151,9 +155,9 @@ describe('ReconnectManager', () => {
 
       manager.scheduleReconnect(TransitionReason.NETWORK_ERROR);
       vi.advanceTimersByTime(200);
-      
+
       manager.scheduleReconnect(TransitionReason.NETWORK_ERROR);
-      
+
       expect(manager.giveUpReason).toBe(GiveUpReason.MAX_TIME);
     });
   });
@@ -194,10 +198,10 @@ describe('ReconnectManager', () => {
 
       manager.scheduleReconnect(TransitionReason.NETWORK_ERROR);
       vi.advanceTimersByTime(100);
-      
+
       // Hit limit - should fire onGiveUp
       manager.scheduleReconnect(TransitionReason.NETWORK_ERROR);
-      
+
       // More attempts - should NOT fire again
       manager.scheduleReconnect(TransitionReason.NETWORK_ERROR);
       manager.scheduleReconnect(TransitionReason.NETWORK_ERROR);
@@ -220,7 +224,7 @@ describe('ReconnectManager', () => {
       manager.stop();
 
       expect(manager.isPending).toBe(false);
-      
+
       vi.advanceTimersByTime(2000);
       expect(onReconnect).not.toHaveBeenCalled();
     });
@@ -275,9 +279,9 @@ describe('ReconnectManager', () => {
       });
 
       manager.stop();
-      
+
       const scheduled = manager.scheduleReconnect(TransitionReason.NETWORK_ERROR);
-      
+
       expect(scheduled).toBe(false);
       expect(manager.isPending).toBe(false);
     });
@@ -289,7 +293,7 @@ describe('ReconnectManager', () => {
       });
 
       const scheduled = manager.scheduleReconnect(TransitionReason.USER_STOP);
-      
+
       expect(scheduled).toBe(false);
     });
   });
@@ -307,7 +311,7 @@ describe('ReconnectManager', () => {
       manager.scheduleReconnect(TransitionReason.NETWORK_ERROR);
 
       const stats = manager.getStats();
-      
+
       expect(stats.hasGivenUp).toBe(true);
       expect(stats.giveUpReason).toBe(GiveUpReason.MAX_ATTEMPTS);
       expect(stats.elapsedMs).toBeGreaterThanOrEqual(0);

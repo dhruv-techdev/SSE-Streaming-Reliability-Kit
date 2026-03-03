@@ -11,29 +11,30 @@ export const StepType = {
   CONNECT: 'connect',
   DISCONNECT: 'disconnect',
   WAIT_CONNECTED: 'wait_connected',
-  
+
   // Event handling
   WAIT_EVENTS: 'wait_events',
   WAIT_EVENT_TYPE: 'wait_event_type',
-  
+
   // Fault injection
   DROP_CONNECTION: 'drop_connection',
   PAUSE_EVENTS: 'pause_events',
   RESUME_EVENTS: 'resume_events',
   INJECT_DUPLICATE: 'inject_duplicate',
   DELAY_EVENTS: 'delay_events',
-  
+
   // Server control
   RESTART_SERVER: 'restart_server',
+  STOP_SERVER: 'stop_server',
   STOP_HEARTBEATS: 'stop_heartbeats',
   RESUME_HEARTBEATS: 'resume_heartbeats',
-  
+
   // Timing
   WAIT: 'wait',
   WAIT_RECONNECT: 'wait_reconnect',
   WAIT_LIVENESS_FAILURE: 'wait_liveness_failure',
   WAIT_GIVE_UP: 'wait_give_up',
-  
+
   // Assertions (SSRK-200)
   ASSERT_STATE: 'assert_state',
   ASSERT_STATS: 'assert_stats',
@@ -82,7 +83,7 @@ export function validateScenario(scenario) {
  */
 export function defineScenario(definition) {
   const validation = validateScenario(definition);
-  
+
   if (!validation.valid) {
     throw new Error(`Invalid scenario: ${validation.errors.join(', ')}`);
   }

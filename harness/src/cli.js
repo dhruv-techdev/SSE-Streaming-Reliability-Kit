@@ -5,7 +5,7 @@
  */
 import { readdir } from 'fs/promises';
 import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { createRunner, ResultStatus } from './runner.js';
 import { createReporter, ReportFormat } from './reporter.js';
 
@@ -17,15 +17,15 @@ const SCENARIOS_DIR = join(__dirname, '..', 'scenarios');
  */
 async function loadScenarios() {
   const scenarios = {};
-  
+
   try {
     const files = await readdir(SCENARIOS_DIR);
-    
+
     for (const file of files) {
       if (file.endsWith('.js')) {
-        const modulePath = join(SCENARIOS_DIR, file);
+        const modulePath = pathToFileURL(join(SCENARIOS_DIR, file)).href;
         const module = await import(modulePath);
-        
+
         if (module.default) {
           scenarios[module.default.name] = module.default;
         }
@@ -34,7 +34,7 @@ async function loadScenarios() {
   } catch (err) {
     console.error('Error loading scenarios:', err.message);
   }
-  
+
   return scenarios;
 }
 
@@ -55,7 +55,7 @@ function parseArgs(args) {
 
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
-    
+
     if (arg === '--debug') {
       parsed.debug = true;
     } else if (arg === '--fail-fast') {
@@ -122,10 +122,10 @@ async function main() {
 
   if (!parsed.command || parsed.command === 'help' || parsed.command === '--help') {
     printUsage();
-    process.exit(0);  // SSRK-207: Exit 0 for help
+    process.exit(0); // SSRK-207: Exit 0 for help
   }
 
-  const reporter = createReporter({ 
+  const reporter = createReporter({
     format: parsed.format === 'json' ? ReportFormat.JSON : ReportFormat.CONSOLE,
     verbose: parsed.verbose,
   });
@@ -134,55 +134,55 @@ async function main() {
   const scenarioNames = Object.keys(scenarios);
 
   if (parsed.command === 'list') {
-    console.log('\ní³‹ Available Scenarios:\n');
-    
+    console.log('\nï¿½ï¿½ï¿½ Available Scenarios:\n');
+
     for (const [name, scenario] of Object.entries(scenarios)) {
       const tags = scenario.tags?.length > 0 ? ` [${scenario.tags.join(', ')}]` : '';
       console.log(`  â€¢ ${name}${tags}`);
       console.log(`    ${scenario.description || 'No description'}`);
     }
-    
+
     console.log(`\nTotal: ${scenarioNames.length} scenarios\n`);
-    process.exit(0);  // SSRK-207: Exit 0 for list
+    process.exit(0); // SSRK-207: Exit 0 for list
   }
 
   if (parsed.command === 'run') {
     if (!parsed.scenario) {
       console.error('Error: Scenario name required');
       printUsage();
-      process.exit(2);  // SSRK-207: Exit 2 for error
+      process.exit(2); // SSRK-207: Exit 2 for error
     }
 
     const scenario = scenarios[parsed.scenario];
-    
+
     if (!scenario) {
       console.error(`Error: Unknown scenario "${parsed.scenario}"`);
       console.log(`Available: ${scenarioNames.join(', ')}`);
-      process.exit(2);  // SSRK-207: Exit 2 for error
+      process.exit(2); // SSRK-207: Exit 2 for error
     }
 
-    console.log(`\ní·ª Running scenario: ${parsed.scenario}`);
-    
-    const runner = createRunner({ 
-      debug: parsed.debug, 
+    console.log(`\nï¿½ï¿½ï¿½ Running scenario: ${parsed.scenario}`);
+
+    const runner = createRunner({
+      debug: parsed.debug,
       serverPort: parsed.port,
       failFast: parsed.failFast,
     });
-    
+
     const result = await runner.run(scenario);
-    
+
     // Print report (SSRK-206)
     console.log(reporter.reportScenario(result));
-    
+
     // SSRK-207: Exit code based on result
     process.exit(result.status === ResultStatus.PASSED ? 0 : 1);
   }
 
   if (parsed.command === 'run-all') {
-    console.log(`\ní·ª Running all ${scenarioNames.length} scenarios\n`);
-    
-    const runner = createRunner({ 
-      debug: parsed.debug, 
+    console.log(`\nï¿½ï¿½ï¿½ Running all ${scenarioNames.length} scenarios\n`);
+
+    const runner = createRunner({
+      debug: parsed.debug,
       serverPort: parsed.port,
       failFast: parsed.failFast,
     });
@@ -202,7 +202,7 @@ async function main() {
     }
 
     // SSRK-207: Exit code
-    const failed = results.filter(r => r.status !== ResultStatus.PASSED).length;
+    const failed = results.filter((r) => r.status !== ResultStatus.PASSED).length;
     process.exit(failed > 0 ? 1 : 0);
   }
 
@@ -213,19 +213,17 @@ async function main() {
       process.exit(2);
     }
 
-    const taggedScenarios = Object.values(scenarios).filter(
-      s => s.tags?.includes(parsed.tag)
-    );
+    const taggedScenarios = Object.values(scenarios).filter((s) => s.tags?.includes(parsed.tag));
 
     if (taggedScenarios.length === 0) {
       console.error(`Error: No scenarios found with tag "${parsed.tag}"`);
       process.exit(2);
     }
 
-    console.log(`\ní·ª Running ${taggedScenarios.length} scenarios with tag "${parsed.tag}"\n`);
-    
-    const runner = createRunner({ 
-      debug: parsed.debug, 
+    console.log(`\nï¿½ï¿½ï¿½ Running ${taggedScenarios.length} scenarios with tag "${parsed.tag}"\n`);
+
+    const runner = createRunner({
+      debug: parsed.debug,
       serverPort: parsed.port,
       failFast: parsed.failFast,
     });
@@ -238,7 +236,7 @@ async function main() {
 
     console.log(reporter.reportSummary(results));
 
-    const failed = results.filter(r => r.status !== ResultStatus.PASSED).length;
+    const failed = results.filter((r) => r.status !== ResultStatus.PASSED).length;
     process.exit(failed > 0 ? 1 : 0);
   }
 
@@ -247,7 +245,7 @@ async function main() {
   process.exit(2);
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error('Fatal error:', err);
-  process.exit(2);  // SSRK-207: Exit 2 for error
+  process.exit(2); // SSRK-207: Exit 2 for error
 });

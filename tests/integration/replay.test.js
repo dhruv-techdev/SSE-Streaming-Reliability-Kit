@@ -45,12 +45,7 @@ describe('Server Replay Integration', () => {
    * Helper to collect events from stream
    */
   async function collectEvents(options = {}) {
-    const {
-      lastEventId = null,
-      count = 5,
-      timeout = 5000,
-      includeControl = false,
-    } = options;
+    const { lastEventId = null, count = 5, timeout = 5000, includeControl = false } = options;
 
     const events = [];
 
@@ -106,7 +101,7 @@ describe('Server Replay Integration', () => {
 
     const lastEventId = firstEvents[Math.floor(firstEvents.length / 2)].event_id;
 
-    await new Promise(resolve => setTimeout(resolve, 200));
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
     // Reconnect with Last-Event-ID and collect control events
     const allEvents = await collectEvents({
@@ -116,43 +111,46 @@ describe('Server Replay Integration', () => {
       includeControl: true,
     });
 
-    const replayControl = allEvents.find(e =>
-      e.type === 'control.replay_start' ||
-      e.type === 'control.reconnect'
+    const replayControl = allEvents.find(
+      (e) => e.type === 'control.replay_start' || e.type === 'control.reconnect'
     );
 
     expect(replayControl).toBeDefined();
   });
 
-  it('should replay events after the requested ID (SSRK-136, SSRK-139)', { timeout: 10000 }, async () => {
-    // Collect initial events
-    const initialEvents = await collectEvents({ count: 8, timeout: 3000 });
-    expect(initialEvents.length).toBeGreaterThanOrEqual(5);
+  it(
+    'should replay events after the requested ID (SSRK-136, SSRK-139)',
+    { timeout: 10000 },
+    async () => {
+      // Collect initial events
+      const initialEvents = await collectEvents({ count: 8, timeout: 3000 });
+      expect(initialEvents.length).toBeGreaterThanOrEqual(5);
 
-    // Pick a middle event
-    const resumeIndex = 2;
-    const lastEventId = initialEvents[resumeIndex].event_id;
+      // Pick a middle event
+      const resumeIndex = 2;
+      const lastEventId = initialEvents[resumeIndex].event_id;
 
-    // Wait a bit for more events to be generated
-    await new Promise(resolve => setTimeout(resolve, 500));
+      // Wait a bit for more events to be generated
+      await new Promise((resolve) => setTimeout(resolve, 500));
 
-    // Reconnect with Last-Event-ID
-    const allEvents = await collectEvents({
-      lastEventId,
-      count: 20,
-      timeout: 3000,
-      includeControl: true,
-    });
+      // Reconnect with Last-Event-ID
+      const allEvents = await collectEvents({
+        lastEventId,
+        count: 20,
+        timeout: 3000,
+        includeControl: true,
+      });
 
-    // Should have received replay_start control
-    const replayStart = allEvents.find(e => e.type === 'control.replay_start');
+      // Should have received replay_start control
+      const replayStart = allEvents.find((e) => e.type === 'control.replay_start');
 
-    if (replayStart && replayStart.payload.reason === 'replay_started') {
-      // Replayed events should be in order
-      const replayEnd = allEvents.find(e => e.type === 'control.replay_end');
-      expect(replayEnd).toBeDefined();
+      if (replayStart && replayStart.payload.reason === 'replay_started') {
+        // Replayed events should be in order
+        const replayEnd = allEvents.find((e) => e.type === 'control.replay_end');
+        expect(replayEnd).toBeDefined();
+      }
     }
-  });
+  );
 
   it('should send control.cannot_resume when event ID not found (SSRK-136)', async () => {
     // Connect with non-existent Last-Event-ID
@@ -163,42 +161,46 @@ describe('Server Replay Integration', () => {
       includeControl: true,
     });
 
-    const cannotResumeControl = events.find(e => e.type === 'control.cannot_resume');
+    const cannotResumeControl = events.find((e) => e.type === 'control.cannot_resume');
 
     expect(cannotResumeControl).toBeDefined();
     expect(cannotResumeControl.payload.reason).toBe('events_expired');
   });
 
-  it('should truncate replay when exceeding MAX_REPLAY_BATCH (SSRK-138)', { timeout: 10000 }, async () => {
-    // We configured MAX_REPLAY_BATCH=10
-    // First, let's collect many events to fill the buffer
-    const manyEvents = await collectEvents({ count: 20, timeout: 6000 });
-    expect(manyEvents.length).toBeGreaterThanOrEqual(15);
+  it(
+    'should truncate replay when exceeding MAX_REPLAY_BATCH (SSRK-138)',
+    { timeout: 10000 },
+    async () => {
+      // We configured MAX_REPLAY_BATCH=10
+      // First, let's collect many events to fill the buffer
+      const manyEvents = await collectEvents({ count: 20, timeout: 6000 });
+      expect(manyEvents.length).toBeGreaterThanOrEqual(15);
 
-    // Get the first event ID
-    const firstEventId = manyEvents[0].event_id;
+      // Get the first event ID
+      const firstEventId = manyEvents[0].event_id;
 
-    // Wait a bit more
-    await new Promise(resolve => setTimeout(resolve, 1000));
+      // Wait a bit more
+      await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    // Reconnect from the first event
-    const replayEvents = await collectEvents({
-      lastEventId: firstEventId,
-      count: 50,
-      timeout: 3000,
-      includeControl: true,
-    });
+      // Reconnect from the first event
+      const replayEvents = await collectEvents({
+        lastEventId: firstEventId,
+        count: 50,
+        timeout: 3000,
+        includeControl: true,
+      });
 
-    // Look for truncation indication
-    const replayStart = replayEvents.find(e => e.type === 'control.replay_start');
+      // Look for truncation indication
+      const replayStart = replayEvents.find((e) => e.type === 'control.replay_start');
 
-    if (replayStart) {
-      if (replayStart.payload.reason === 'replay_truncated') {
-        expect(replayStart.payload.sending).toBeLessThanOrEqual(10);
-        expect(replayStart.payload.totalAvailable).toBeGreaterThan(10);
+      if (replayStart) {
+        if (replayStart.payload.reason === 'replay_truncated') {
+          expect(replayStart.payload.sending).toBeLessThanOrEqual(10);
+          expect(replayStart.payload.totalAvailable).toBeGreaterThan(10);
+        }
       }
     }
-  });
+  );
 
   it('should maintain event ordering in replay (SSRK-137)', async () => {
     // Collect sequential events
@@ -207,8 +209,8 @@ describe('Server Replay Integration', () => {
 
     // Extract sequences
     const sequences = events
-      .filter(e => e.type === 'domain.stream.tick')
-      .map(e => e.payload.sequence);
+      .filter((e) => e.type === 'domain.stream.tick')
+      .map((e) => e.payload.sequence);
 
     // Verify they are in order
     for (let i = 1; i < sequences.length; i++) {
@@ -218,11 +220,13 @@ describe('Server Replay Integration', () => {
 
   it('should expose buffer stats in /health endpoint', async () => {
     const health = await new Promise((resolve, reject) => {
-      http.get(`http://localhost:${port}/health`, (res) => {
-        let data = '';
-        res.on('data', chunk => data += chunk);
-        res.on('end', () => resolve(JSON.parse(data)));
-      }).on('error', reject);
+      http
+        .get(`http://localhost:${port}/health`, (res) => {
+          let data = '';
+          res.on('data', (chunk) => (data += chunk));
+          res.on('end', () => resolve(JSON.parse(data)));
+        })
+        .on('error', reject);
     });
 
     expect(health.buffer).toBeDefined();
@@ -241,11 +245,13 @@ describe('Server Replay Integration', () => {
     });
 
     const health = await new Promise((resolve, reject) => {
-      http.get(`http://localhost:${port}/health`, (res) => {
-        let data = '';
-        res.on('data', chunk => data += chunk);
-        res.on('end', () => resolve(JSON.parse(data)));
-      }).on('error', reject);
+      http
+        .get(`http://localhost:${port}/health`, (res) => {
+          let data = '';
+          res.on('data', (chunk) => (data += chunk));
+          res.on('end', () => resolve(JSON.parse(data)));
+        })
+        .on('error', reject);
     });
 
     expect(health.metrics.counters.replays_attempted_total).toBeGreaterThan(0);
@@ -257,7 +263,7 @@ describe('Server Replay Integration', () => {
     if (events.length >= 3) {
       const lastEventId = events[0].event_id;
 
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 500));
 
       const replayEvents = await collectEvents({
         lastEventId,
@@ -266,8 +272,8 @@ describe('Server Replay Integration', () => {
         includeControl: true,
       });
 
-      const replayStart = replayEvents.find(e => e.type === 'control.replay_start');
-      const replayEnd = replayEvents.find(e => e.type === 'control.replay_end');
+      const replayStart = replayEvents.find((e) => e.type === 'control.replay_start');
+      const replayEnd = replayEvents.find((e) => e.type === 'control.replay_end');
 
       if (replayStart && replayStart.payload.eventCount > 0) {
         expect(replayEnd).toBeDefined();

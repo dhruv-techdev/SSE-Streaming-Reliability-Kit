@@ -17,7 +17,7 @@ export class MetricsRegistry {
     // Counters (SSRK-160, SSRK-161, SSRK-162, SSRK-163)
     this._counters = {
       streams_opened_total: 0,
-      disconnects_total: {},          // by reason label
+      disconnects_total: {}, // by reason label
       rejected_connections_total: 0,
       heartbeats_sent_total: 0,
       heartbeats_failed_total: 0,
@@ -27,7 +27,7 @@ export class MetricsRegistry {
       replays_succeeded_total: 0,
       replays_failed_total: 0,
       replay_events_sent_total: 0,
-      cannot_resume_total: {},        // by reason label
+      cannot_resume_total: {}, // by reason label
     };
 
     // Histograms (optional - for future use)
@@ -201,7 +201,9 @@ export class MetricsRegistry {
       lines.push(`${prefix}_disconnects_total{reason="none"} 0`);
     } else {
       for (const reason of disconnectReasons) {
-        lines.push(`${prefix}_disconnects_total{reason="${reason}"} ${this._counters.disconnects_total[reason]}`);
+        lines.push(
+          `${prefix}_disconnects_total{reason="${reason}"} ${this._counters.disconnects_total[reason]}`
+        );
       }
     }
     lines.push('');
@@ -259,7 +261,9 @@ export class MetricsRegistry {
       lines.push(`${prefix}_cannot_resume_total{reason="none"} 0`);
     } else {
       for (const reason of cannotResumeReasons) {
-        lines.push(`${prefix}_cannot_resume_total{reason="${reason}"} ${this._counters.cannot_resume_total[reason]}`);
+        lines.push(
+          `${prefix}_cannot_resume_total{reason="${reason}"} ${this._counters.cannot_resume_total[reason]}`
+        );
       }
     }
     lines.push('');

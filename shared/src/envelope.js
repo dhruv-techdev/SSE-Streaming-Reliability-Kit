@@ -27,11 +27,11 @@ export function createEnvelope(type, payload = {}, options = {}) {
 
 /**
  * Creates a heartbeat event (SSRK-113)
- * 
+ *
  * Heartbeat envelope includes:
  * - type: 'system.heartbeat'
  * - payload: { server_time, interval_ms, connection_id }
- * 
+ *
  * @param {Object} [options] - Optional fields
  * @param {number} [options.interval_ms] - Current heartbeat interval
  * @param {string} [options.connection_id] - Connection identifier
@@ -41,12 +41,12 @@ export function createHeartbeat(options = {}) {
   const payload = {
     server_time: new Date().toISOString(),
   };
-  
+
   // Include interval if provided (informational for client)
   if (options.interval_ms !== undefined) {
     payload.interval_ms = options.interval_ms;
   }
-  
+
   // Include connection_id if provided
   if (options.connection_id) {
     payload.connection_id = options.connection_id;
@@ -103,16 +103,16 @@ export function createDomainEvent(entity, action, payload, options = {}) {
  */
 export function encodeSSE(envelope) {
   const lines = [];
-  
+
   lines.push(`id: ${envelope.event_id}`);
   lines.push(`event: ${envelope.type}`);
-  
+
   if (envelope.retry !== undefined) {
     lines.push(`retry: ${envelope.retry}`);
   }
-  
+
   lines.push(`data: ${JSON.stringify(envelope)}`);
-  
+
   return lines.join('\n') + '\n\n';
 }
 
@@ -125,14 +125,14 @@ export function decodeSSE(data) {
   try {
     const envelope = JSON.parse(data);
     const validation = validateEvent(envelope);
-    
+
     if (!validation.valid) {
       return {
         envelope: null,
         error: `Invalid envelope: ${JSON.stringify(validation.errors)}`,
       };
     }
-    
+
     return { envelope, error: null };
   } catch (err) {
     return { envelope: null, error: `Parse error: ${err.message}` };
@@ -146,7 +146,7 @@ export function decodeSSE(data) {
  */
 export function parseSSEChunk(raw) {
   const result = { id: null, event: null, data: null, retry: null };
-  
+
   const lines = raw.split('\n');
   for (const line of lines) {
     if (line.startsWith('id: ')) {
@@ -159,6 +159,6 @@ export function parseSSEChunk(raw) {
       result.retry = parseInt(line.slice(7), 10);
     }
   }
-  
+
   return result;
 }

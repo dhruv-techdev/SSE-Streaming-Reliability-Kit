@@ -24,7 +24,7 @@ describe('SSE Protocol Compliance', () => {
     it('should encode event with id, event, and data fields', () => {
       const event = createControl('open', { test: true });
       const sse = encodeSSE(event);
-      
+
       expect(sse).toContain('id: ');
       expect(sse).toContain('event: control.open');
       expect(sse).toContain('data: ');
@@ -33,7 +33,7 @@ describe('SSE Protocol Compliance', () => {
     it('should include retry field when specified', () => {
       const event = createControl('open', {}, { retry: 5000 });
       const sse = encodeSSE(event);
-      
+
       expect(sse).toContain('retry: 5000');
     });
   });
@@ -50,7 +50,7 @@ describe('SSE Protocol Compliance', () => {
     it('should create valid heartbeat event', () => {
       const heartbeat = createHeartbeat();
       const result = validateEvent(heartbeat);
-      
+
       expect(result.valid).toBe(true);
       expect(heartbeat.type).toBe('system.heartbeat');
       expect(heartbeat.payload).toHaveProperty('server_time');
@@ -68,7 +68,7 @@ describe('SSE Protocol Compliance', () => {
         resume_from: 'event-123',
       });
       const result = validateEvent(reconnect);
-      
+
       expect(result.valid).toBe(true);
       expect(reconnect.type).toBe('control.reconnect');
     });
@@ -91,7 +91,7 @@ describe('SSE Protocol Compliance', () => {
     it('should create valid error event with taxonomy code', () => {
       const error = createError('Too many requests', DisconnectReason.RATE_LIMITED);
       const result = validateEvent(error);
-      
+
       expect(result.valid).toBe(true);
       expect(error.payload.code).toBe('rate_limited');
     });

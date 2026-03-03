@@ -52,7 +52,7 @@ describe('OrderingGuard', () => {
 
     it('should accept events with increasing sequence (SSRK-157)', () => {
       guard.check({ event_id: 'a', type: 'domain.a', ts: '', payload: {}, sequence: 1 });
-      
+
       const result = guard.check({
         event_id: 'b',
         type: 'domain.b',
@@ -66,7 +66,7 @@ describe('OrderingGuard', () => {
 
     it('should drop events with same sequence (SSRK-157)', () => {
       guard.check({ event_id: 'a', type: 'domain.a', ts: '', payload: {}, sequence: 5 });
-      
+
       const result = guard.check({
         event_id: 'b',
         type: 'domain.b',
@@ -81,7 +81,7 @@ describe('OrderingGuard', () => {
 
     it('should drop events with lower sequence (SSRK-157)', () => {
       guard.check({ event_id: 'a', type: 'domain.a', ts: '', payload: {}, sequence: 10 });
-      
+
       const result = guard.check({
         event_id: 'b',
         type: 'domain.b',
@@ -95,7 +95,7 @@ describe('OrderingGuard', () => {
 
     it('should accept events without sequence', () => {
       guard.check({ event_id: 'a', type: 'domain.a', ts: '', payload: {}, sequence: 1 });
-      
+
       const result = guard.check({
         event_id: 'b',
         type: 'domain.b',
@@ -119,7 +119,7 @@ describe('OrderingGuard', () => {
 
     it('should accept events with increasing event_id', () => {
       guard.check({ event_id: 'aaa', type: 'domain.a', ts: '', payload: {} });
-      
+
       const result = guard.check({
         event_id: 'bbb', // Greater string
         type: 'domain.b',
@@ -132,7 +132,7 @@ describe('OrderingGuard', () => {
 
     it('should drop events with lower event_id', () => {
       guard.check({ event_id: 'zzz', type: 'domain.a', ts: '', payload: {} });
-      
+
       const result = guard.check({
         event_id: 'aaa', // Lower string
         type: 'domain.b',
@@ -155,7 +155,7 @@ describe('OrderingGuard', () => {
 
     it('should accept events with increasing timestamp', () => {
       guard.check({ event_id: 'a', type: 'domain.a', ts: '2024-01-01T00:00:00Z', payload: {} });
-      
+
       const result = guard.check({
         event_id: 'b',
         type: 'domain.b',
@@ -168,7 +168,7 @@ describe('OrderingGuard', () => {
 
     it('should drop events with earlier timestamp', () => {
       guard.check({ event_id: 'a', type: 'domain.a', ts: '2024-06-01T00:00:00Z', payload: {} });
-      
+
       const result = guard.check({
         event_id: 'b',
         type: 'domain.b',
@@ -187,7 +187,7 @@ describe('OrderingGuard', () => {
       });
 
       guard.check({ event_id: 'a', type: 'domain.a', ts: '', payload: {}, sequence: 100 });
-      
+
       const result = guard.check({
         event_id: 'b',
         type: 'domain.b',
@@ -233,7 +233,7 @@ describe('OrderingGuard', () => {
 
       // Try out-of-order event
       guard.check({ event_id: 'b', type: 'domain.b', ts: '', payload: {}, sequence: 5 });
-      
+
       // Marker should still be 10
       expect(guard.lastAcceptedSequence).toBe(10);
     });
@@ -283,7 +283,7 @@ describe('OrderingGuard', () => {
       });
 
       guard.check({ event_id: 'a', type: 'domain.a', ts: '', payload: {}, sequence: 10 });
-      
+
       const result = guard.check({
         event_id: 'b',
         type: 'domain.b',
@@ -336,7 +336,7 @@ describe('OrderingGuard', () => {
         capturedContext = ctx;
         return true;
       });
-      
+
       const guard = createOrderingGuard({
         orderingRule: OrderingRule.SEQUENCE,
         shouldProcess,
@@ -353,7 +353,7 @@ describe('OrderingGuard', () => {
     });
   });
 
-  describe('Control events don\'t affect sequencing (SSRK-156)', () => {
+  describe("Control events don't affect sequencing (SSRK-156)", () => {
     let guard;
 
     beforeEach(() => {
@@ -442,7 +442,7 @@ describe('OrderingGuard', () => {
       });
 
       guard.check({ event_id: 'a', type: 'domain.a', ts: 'now', payload: {}, sequence: 100 });
-      
+
       expect(guard.lastAcceptedSequence).toBe(100);
 
       guard.reset();

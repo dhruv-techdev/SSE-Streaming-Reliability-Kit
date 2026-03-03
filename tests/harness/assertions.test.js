@@ -2,7 +2,12 @@
  * Assertion API Tests (SSRK-200)
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Assertions, AssertionResult, AssertionError, createAssertions } from '../../harness/src/assertions.js';
+import {
+  Assertions,
+  AssertionResult,
+  AssertionError,
+  createAssertions,
+} from '../../harness/src/assertions.js';
 
 describe('Assertions (SSRK-200)', () => {
   let context;
@@ -40,14 +45,12 @@ describe('Assertions (SSRK-200)', () => {
         { event_id: 'e1', type: 'domain.test', sequence: 1 },
         { event_id: 'e2', type: 'domain.test', sequence: 2 },
       ],
-      controlEvents: [
-        { type: 'control.open' },
-      ],
+      controlEvents: [{ type: 'control.open' }],
       duplicatesDropped: 1,
       livenessFailures: 0,
       cannotResumeReceived: false,
     };
-    
+
     assertions = createAssertions(context);
   });
 
@@ -142,13 +145,13 @@ describe('Assertions (SSRK-200)', () => {
 
   describe('Custom assertions', () => {
     it('should support custom predicate', () => {
-      assertions.custom('Has at least 2 events', ctx => ctx.events.length >= 2);
+      assertions.custom('Has at least 2 events', (ctx) => ctx.events.length >= 2);
       expect(assertions.getSummary().allPassed).toBe(true);
     });
 
     it('should fail custom predicate', () => {
       expect(() => {
-        assertions.custom('Has 100 events', ctx => ctx.events.length >= 100);
+        assertions.custom('Has 100 events', (ctx) => ctx.events.length >= 100);
       }).toThrow(AssertionError);
     });
   });

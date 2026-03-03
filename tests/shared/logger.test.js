@@ -72,11 +72,11 @@ describe('Logger', () => {
     });
 
     it('should support all log levels', () => {
-      const output = { 
-        log: vi.fn(), 
+      const output = {
+        log: vi.fn(),
         debug: vi.fn(),
-        warn: vi.fn(), 
-        error: vi.fn() 
+        warn: vi.fn(),
+        error: vi.fn(),
       };
       const logger = createLogger({ output, level: LogLevel.DEBUG });
 
@@ -139,10 +139,10 @@ describe('Logger', () => {
 
     it('should merge context', () => {
       const output = { log: vi.fn() };
-      const parent = createLogger({ 
-        output, 
+      const parent = createLogger({
+        output,
         level: LogLevel.DEBUG,
-        context: { parent_key: 'parent_value' } 
+        context: { parent_key: 'parent_value' },
       });
 
       const child = parent.child({ context: { child_key: 'child_value' } });

@@ -21,6 +21,7 @@
 ## ST-01: Endpoint Contract
 
 ### Endpoint Path
+
 ```
 GET /stream
 GET /stream?last_event_id={id}
@@ -28,31 +29,32 @@ GET /stream?last_event_id={id}
 
 ### Required Request Headers
 
-| Header | Value | Required |
-|--------|-------|----------|
-| `Accept` | `text/event-stream` | Recommended |
-| `Cache-Control` | `no-cache` | Recommended |
-| `Last-Event-ID` | `{event_id}` | For resume |
+| Header          | Value               | Required    |
+| --------------- | ------------------- | ----------- |
+| `Accept`        | `text/event-stream` | Recommended |
+| `Cache-Control` | `no-cache`          | Recommended |
+| `Last-Event-ID` | `{event_id}`        | For resume  |
 
 ### Required Response Headers
 
-| Header | Value | Purpose |
-|--------|-------|---------|
-| `Content-Type` | `text/event-stream` | SSE MIME type |
-| `Cache-Control` | `no-cache` | Prevent caching |
-| `Connection` | `keep-alive` | Persistent connection |
-| `X-Accel-Buffering` | `no` | Disable proxy buffering |
+| Header              | Value               | Purpose                 |
+| ------------------- | ------------------- | ----------------------- |
+| `Content-Type`      | `text/event-stream` | SSE MIME type           |
+| `Cache-Control`     | `no-cache`          | Prevent caching         |
+| `Connection`        | `keep-alive`        | Persistent connection   |
+| `X-Accel-Buffering` | `no`                | Disable proxy buffering |
 
 ### SSE Field Usage
 
-| Field | Usage | Example |
-|-------|-------|---------|
-| `id` | Event ID for resume (UUIDv7) | `id: 0190a5e8-7c00-7000-8000-000000000001` |
-| `event` | Event type | `event: domain.user.created` |
-| `data` | JSON envelope | `data: {"event_id":"...","type":"..."}` |
-| `retry` | Reconnect interval (ms) | `retry: 3000` |
+| Field   | Usage                        | Example                                    |
+| ------- | ---------------------------- | ------------------------------------------ |
+| `id`    | Event ID for resume (UUIDv7) | `id: 0190a5e8-7c00-7000-8000-000000000001` |
+| `event` | Event type                   | `event: domain.user.created`               |
+| `data`  | JSON envelope                | `data: {"event_id":"...","type":"..."}`    |
+| `retry` | Reconnect interval (ms)      | `retry: 3000`                              |
 
 ### Wire Format Example
+
 ```
 id: 0190a5e8-7c00-7000-8000-000000000001
 event: domain.user.created
@@ -74,11 +76,11 @@ Events are delivered **in-order within a single connection**. The server:
 
 ### Ordering Rules
 
-| Rule | Description |
-|------|-------------|
-| **Single Connection** | Events arrive in send order |
-| **After Reconnect** | Events replay from `Last-Event-ID` in order |
-| **Across Streams** | No ordering guarantee between different `stream_id` values |
+| Rule                  | Description                                                |
+| --------------------- | ---------------------------------------------------------- |
+| **Single Connection** | Events arrive in send order                                |
+| **After Reconnect**   | Events replay from `Last-Event-ID` in order                |
+| **Across Streams**    | No ordering guarantee between different `stream_id` values |
 
 ### Client Expectations
 
@@ -101,21 +103,24 @@ If client detects out-of-order events:
 ### Purpose
 
 Heartbeats serve two purposes:
+
 1. **Keep-alive**: Prevent proxies/load balancers from closing idle connections
 2. **Liveness detection**: Let clients know the connection is still active
 
 ### Server Behavior
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
+| Parameter            | Default    | Description             |
+| -------------------- | ---------- | ----------------------- |
 | `HEARTBEAT_INTERVAL` | 30 seconds | Time between heartbeats |
 
 Server MUST:
+
 - Send heartbeat if no other event sent within interval
 - Use the standard event envelope format
 - Include `type: system.heartbeat`
 
 ### Heartbeat Event Format
+
 ```
 id: 0190a5e8-7c00-7000-8000-000000000001
 event: system.heartbeat
@@ -124,16 +129,18 @@ data: {"event_id":"0190a5e8-7c00-7000-8000-000000000001","type":"system.heartbea
 
 ### Client Behavior
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
+| Parameter        | Default    | Description                |
+| ---------------- | ---------- | -------------------------- |
 | `CLIENT_TIMEOUT` | 45 seconds | Max time without any event |
 
 Client MUST:
+
 - Reset timeout timer on ANY event (including heartbeat)
 - Consider connection dead if no event within `CLIENT_TIMEOUT`
 - Initiate reconnection if timeout occurs
 
 ### Missed Heartbeat Detection
+
 ```
 Timeline:
 0s    - Event received, reset timer
@@ -151,19 +158,20 @@ Timeline:
 Allow clients to resume from where they left off after disconnection.
 
 ### Protocol Flow
+
 ```
 1. Client connects:
    GET /stream
-   
+
 2. Server sends events with IDs:
    id: event-001
    id: event-002
    id: event-003  ← Client receives this, then disconnects
-   
+
 3. Client reconnects with Last-Event-ID:
    GET /stream
    Last-Event-ID: event-003
-   
+
 4. Server replays events AFTER event-003:
    id: event-004
    id: event-005
@@ -172,24 +180,25 @@ Allow clients to resume from where they left off after disconnection.
 
 ### Server Requirements
 
-| Requirement | Description |
-|-------------|-------------|
-| **Store events** | Keep recent events in buffer (memory/Redis) |
-| **Honor Last-Event-ID** | Replay events after the given ID |
-| **Limit replay** | Max 1000 events or 5 minutes, whichever is less |
-| **Signal gaps** | Send `control.reconnect` if events are unavailable |
+| Requirement             | Description                                        |
+| ----------------------- | -------------------------------------------------- |
+| **Store events**        | Keep recent events in buffer (memory/Redis)        |
+| **Honor Last-Event-ID** | Replay events after the given ID                   |
+| **Limit replay**        | Max 1000 events or 5 minutes, whichever is less    |
+| **Signal gaps**         | Send `control.reconnect` if events are unavailable |
 
 ### Client Requirements
 
-| Requirement | Description |
-|-------------|-------------|
-| **Track last ID** | Store most recent `id` field value |
-| **Send on reconnect** | Include `Last-Event-ID` header |
-| **Handle gaps** | Process `control.reconnect` with `resume_from` |
+| Requirement           | Description                                    |
+| --------------------- | ---------------------------------------------- |
+| **Track last ID**     | Store most recent `id` field value             |
+| **Send on reconnect** | Include `Last-Event-ID` header                 |
+| **Handle gaps**       | Process `control.reconnect` with `resume_from` |
 
 ### Gap Handling
 
 If server cannot replay from requested ID:
+
 ```
 id: 0190a5e8-8000-7000-8000-000000000001
 event: control.reconnect
@@ -197,6 +206,7 @@ data: {"event_id":"...","type":"control.reconnect","ts":"...","payload":{"reason
 ```
 
 Client should:
+
 1. Log the gap for observability
 2. Continue processing from new position
 3. Optionally fetch missed data via REST API
@@ -207,24 +217,25 @@ Client should:
 
 ### Disconnect Reasons
 
-| Code | Initiator | Description |
-|------|-----------|-------------|
-| `client_close` | Client | Client called `close()` |
-| `client_abort` | Client | Browser/tab closed |
-| `client_timeout` | Client | No data received in time |
-| `server_shutdown` | Server | Graceful shutdown |
-| `server_restart` | Server | Server restarting |
-| `server_error` | Server | Unhandled exception |
-| `idle_timeout` | Server | No activity timeout |
-| `network_error` | Network | Connection lost |
-| `overload_reject` | Server | Server too busy (503) |
-| `rate_limited` | Server | Too many requests (429) |
-| `auth_expired` | Server | Token expired (401) |
-| `stream_ended` | Server | Normal completion |
-| `parse_error` | Either | Malformed data |
-| `invalid_event` | Either | Schema validation failed |
+| Code              | Initiator | Description              |
+| ----------------- | --------- | ------------------------ |
+| `client_close`    | Client    | Client called `close()`  |
+| `client_abort`    | Client    | Browser/tab closed       |
+| `client_timeout`  | Client    | No data received in time |
+| `server_shutdown` | Server    | Graceful shutdown        |
+| `server_restart`  | Server    | Server restarting        |
+| `server_error`    | Server    | Unhandled exception      |
+| `idle_timeout`    | Server    | No activity timeout      |
+| `network_error`   | Network   | Connection lost          |
+| `overload_reject` | Server    | Server too busy (503)    |
+| `rate_limited`    | Server    | Too many requests (429)  |
+| `auth_expired`    | Server    | Token expired (401)      |
+| `stream_ended`    | Server    | Normal completion        |
+| `parse_error`     | Either    | Malformed data           |
+| `invalid_event`   | Either    | Schema validation failed |
 
 ### Error Event Format
+
 ```json
 {
   "event_id": "0190a5e8-7c00-7000-8000-000000000001",
@@ -244,6 +255,7 @@ Client should:
 ## ST-06: State Machines
 
 ### Client State Machine
+
 ```
                     ┌─────────────┐
                     │  CONNECTING │
@@ -272,16 +284,17 @@ Client should:
 
 ### Client State Transitions
 
-| From | To | Trigger |
-|------|----|---------|
-| `CONNECTING` | `OPEN` | Connection established |
-| `CONNECTING` | `RETRYING` | Connection failed |
-| `OPEN` | `RETRYING` | Error or timeout |
-| `OPEN` | `CLOSED` | Client calls `close()` |
-| `RETRYING` | `OPEN` | Reconnection successful |
-| `RETRYING` | `CLOSED` | Max retries exceeded |
+| From         | To         | Trigger                 |
+| ------------ | ---------- | ----------------------- |
+| `CONNECTING` | `OPEN`     | Connection established  |
+| `CONNECTING` | `RETRYING` | Connection failed       |
+| `OPEN`       | `RETRYING` | Error or timeout        |
+| `OPEN`       | `CLOSED`   | Client calls `close()`  |
+| `RETRYING`   | `OPEN`     | Reconnection successful |
+| `RETRYING`   | `CLOSED`   | Max retries exceeded    |
 
 ### Server Stream State Machine
+
 ```
     ┌───────────────┐
     │ INITIALIZING  │
@@ -311,14 +324,14 @@ Client should:
 
 ### Server State Transitions
 
-| From | To | Trigger |
-|------|----|---------|
-| `INITIALIZING` | `STREAMING` | Setup complete |
-| `STREAMING` | `PAUSED` | Backpressure detected |
-| `PAUSED` | `STREAMING` | Backpressure relieved |
-| `STREAMING` | `DRAINING` | Shutdown signal |
-| `PAUSED` | `DRAINING` | Shutdown signal |
-| `DRAINING` | `CLOSED` | All events sent or timeout |
+| From           | To          | Trigger                    |
+| -------------- | ----------- | -------------------------- |
+| `INITIALIZING` | `STREAMING` | Setup complete             |
+| `STREAMING`    | `PAUSED`    | Backpressure detected      |
+| `PAUSED`       | `STREAMING` | Backpressure relieved      |
+| `STREAMING`    | `DRAINING`  | Shutdown signal            |
+| `PAUSED`       | `DRAINING`  | Shutdown signal            |
+| `DRAINING`     | `CLOSED`    | All events sent or timeout |
 
 ---
 
