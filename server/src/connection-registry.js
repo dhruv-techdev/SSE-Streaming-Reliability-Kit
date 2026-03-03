@@ -203,6 +203,14 @@ export function getRegistry(options) {
 }
 
 /**
+ * Create a non-singleton registry instance
+ * Useful for isolated tests and explicit composition.
+ */
+export function createRegistry(options) {
+  return new ConnectionRegistry(options);
+}
+
+/**
  * Reset registry (for testing)
  */
 export function resetRegistry() {
