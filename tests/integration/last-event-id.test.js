@@ -13,9 +13,9 @@ describe('Last-Event-ID Resume Integration', () => {
 
   beforeAll(async () => {
     serverProcess = spawn('node', ['server/src/server.js'], {
-      env: { 
-        ...process.env, 
-        PORT: port, 
+      env: {
+        ...process.env,
+        PORT: port,
         NODE_ENV: 'test',
         SSE_TICK_INTERVAL: '500', // Fast ticks for testing
         SSE_HEARTBEAT_INTERVAL: '30000',
@@ -46,10 +46,10 @@ describe('Last-Event-ID Resume Integration', () => {
     });
 
     // Wait for some events
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const lastEventId = connector.lastEventId;
-    
+
     expect(lastEventId).not.toBeNull();
     expect(lastEventId.length).toBeGreaterThan(0);
 
@@ -70,20 +70,20 @@ describe('Last-Event-ID Resume Integration', () => {
     });
 
     // Wait for some events
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     const firstLastEventId = connector.lastEventId;
     expect(firstLastEventId).not.toBeNull();
 
     // Force disconnect (simulate network issue)
     connector.disconnect();
-    
-    await new Promise(resolve => setTimeout(resolve, 100));
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     // Reconnect
     connector.connect();
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     // Should have attempted resume with lastEventId
     expect(resumeAttempted).toBe(true);
@@ -103,13 +103,13 @@ describe('Last-Event-ID Resume Integration', () => {
       },
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     // Call stop() - intentional shutdown
     connector.stop();
 
     // Wait to ensure no reconnect attempts
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     expect(reconnectCount).toBe(0);
     expect(connector.stopped).toBe(true);
@@ -123,7 +123,7 @@ describe('Last-Event-ID Resume Integration', () => {
       enableLivenessCheck: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     connector.stop();
 
@@ -143,7 +143,7 @@ describe('Last-Event-ID Resume Integration', () => {
     connector2.stop();
     connector2.connect();
 
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     expect(resumeInfo).not.toBeNull();
     expect(resumeInfo.lastEventId).toBe(connector.lastEventId);
@@ -165,7 +165,7 @@ describe('Last-Event-ID Resume Integration', () => {
     });
 
     // Collect some events
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const lastEventIdBeforeDisconnect = connector.lastEventId;
     expect(lastEventIdBeforeDisconnect).not.toBeNull();
@@ -174,7 +174,7 @@ describe('Last-Event-ID Resume Integration', () => {
     // Disconnect
     connector.disconnect();
 
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     // lastEventId should still be preserved
     expect(connector.lastEventId).toBe(lastEventIdBeforeDisconnect);
@@ -182,7 +182,7 @@ describe('Last-Event-ID Resume Integration', () => {
     // Reconnect
     connector.connect();
 
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     // Should still have the lastEventId and potentially more
     expect(connector.lastEventId).not.toBeNull();
@@ -193,13 +193,13 @@ describe('Last-Event-ID Resume Integration', () => {
   it('should verify server receives Last-Event-ID header', async () => {
     // First, get some events to establish a lastEventId
     const events = [];
-    
+
     await new Promise((resolve) => {
       const req = http.get(`http://localhost:${port}/stream`, (res) => {
         res.on('data', (chunk) => {
           const raw = chunk.toString();
           const blocks = raw.split('\n\n').filter(Boolean);
-          
+
           for (const block of blocks) {
             const parsed = parseSSEChunk(block + '\n\n');
             if (parsed.data) {
@@ -231,32 +231,35 @@ describe('Last-Event-ID Resume Integration', () => {
     let gotReconnectControl = false;
 
     await new Promise((resolve) => {
-      const req = http.get({
-        hostname: 'localhost',
-        port,
-        path: '/stream',
-        headers: {
-          'Last-Event-ID': lastEventId,
+      const req = http.get(
+        {
+          hostname: 'localhost',
+          port,
+          path: '/stream',
+          headers: {
+            'Last-Event-ID': lastEventId,
+          },
         },
-      }, (res) => {
-        res.on('data', (chunk) => {
-          const raw = chunk.toString();
-          const blocks = raw.split('\n\n').filter(Boolean);
-          
-          for (const block of blocks) {
-            const parsed = parseSSEChunk(block + '\n\n');
-            if (parsed.data) {
-              const { envelope } = decodeSSE(parsed.data);
-              if (envelope) {
-                if (envelope.type === 'control.reconnect') {
-                  gotReconnectControl = true;
+        (res) => {
+          res.on('data', (chunk) => {
+            const raw = chunk.toString();
+            const blocks = raw.split('\n\n').filter(Boolean);
+
+            for (const block of blocks) {
+              const parsed = parseSSEChunk(block + '\n\n');
+              if (parsed.data) {
+                const { envelope } = decodeSSE(parsed.data);
+                if (envelope) {
+                  if (envelope.type === 'control.reconnect') {
+                    gotReconnectControl = true;
+                  }
+                  moreEvents.push(envelope);
                 }
-                moreEvents.push(envelope);
               }
             }
-          }
-        });
-      });
+          });
+        }
+      );
 
       setTimeout(() => {
         req.destroy();
@@ -276,7 +279,7 @@ describe('Last-Event-ID Resume Integration', () => {
       enableLivenessCheck: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     const stats = connector.getStats();
 
@@ -292,7 +295,7 @@ describe('Last-Event-ID Resume Integration', () => {
       enableLivenessCheck: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     expect(connector.getStats().resumeAttempts).toBe(0);
 
@@ -300,7 +303,7 @@ describe('Last-Event-ID Resume Integration', () => {
     connector.disconnect();
     connector.connect();
 
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     // Should have one resume attempt
     expect(connector.getStats().resumeAttempts).toBe(1);
@@ -309,7 +312,7 @@ describe('Last-Event-ID Resume Integration', () => {
     connector.disconnect();
     connector.connect();
 
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     expect(connector.getStats().resumeAttempts).toBe(2);
 
@@ -322,7 +325,7 @@ describe('Last-Event-ID Resume Integration', () => {
       enableLivenessCheck: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     expect(connector.lastEventId).not.toBeNull();
 

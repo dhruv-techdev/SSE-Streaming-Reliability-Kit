@@ -12,15 +12,15 @@ export class StreamManager {
     this.tickInterval = options.tickInterval || config.sse.tickInterval;
     this.heartbeatInterval = options.heartbeatInterval || config.sse.heartbeatInterval;
     this.debug = options.debug || config.log.heartbeats;
-    
+
     // Event callbacks
     this.onHeartbeatError = options.onHeartbeatError || null;
-    
+
     this.tickTimer = null;
     this.sequence = 0;
     this.lastActivityTime = Date.now();
     this.isRunning = false;
-    
+
     // Per-connection heartbeat scheduler (SSRK-115)
     this._heartbeatScheduler = createHeartbeatScheduler({
       intervalMs: this.heartbeatInterval,
@@ -63,7 +63,7 @@ export class StreamManager {
   _onHeartbeatError(info) {
     // Connection is dead - stop everything
     this.stop();
-    
+
     if (this.onHeartbeatError) {
       this.onHeartbeatError(info);
     }
@@ -79,14 +79,19 @@ export class StreamManager {
     }
 
     this.sequence++;
-    this.writer.sendDomainEvent('stream', 'tick', {
-      sequence: this.sequence,
-      timestamp: new Date().toISOString(),
-      message: `Tick #${this.sequence}`,
-    }, {
-      stream_id: 'default',
-      sequence: this.sequence,
-    });
+    this.writer.sendDomainEvent(
+      'stream',
+      'tick',
+      {
+        sequence: this.sequence,
+        timestamp: new Date().toISOString(),
+        message: `Tick #${this.sequence}`,
+      },
+      {
+        stream_id: 'default',
+        sequence: this.sequence,
+      }
+    );
     this.lastActivityTime = Date.now();
   }
 
@@ -95,7 +100,7 @@ export class StreamManager {
    */
   sendEvent(entity, action, payload, options = {}) {
     if (!this.writer.connected) return false;
-    
+
     this.sequence++;
     const result = this.writer.sendDomainEvent(entity, action, payload, {
       ...options,
@@ -111,12 +116,12 @@ export class StreamManager {
    */
   stop() {
     this.isRunning = false;
-    
+
     if (this.tickTimer) {
       clearInterval(this.tickTimer);
       this.tickTimer = null;
     }
-    
+
     // Stop heartbeat scheduler
     this._heartbeatScheduler.stop();
   }

@@ -9,7 +9,7 @@ export default defineScenario({
   description: 'Validates cannot-resume handling when buffer is expired',
   timeout: 45000,
   tags: ['resume', 'cannot-resume', 'fallback'],
-  
+
   config: {
     client: {
       autoReconnect: true,
@@ -32,24 +32,24 @@ export default defineScenario({
     { type: StepType.CONNECT },
     { type: StepType.WAIT_CONNECTED, timeout: 5000 },
     { type: StepType.WAIT_EVENTS, count: 5, timeout: 5000 },
-    
+
     // Disconnect
     { type: StepType.DISCONNECT },
     { type: StepType.WAIT, ms: 500 },
-    
+
     // Let server generate more events (overwriting buffer)
     { type: StepType.WAIT, ms: 3000 },
-    
+
     // Reconnect with old Last-Event-ID (should trigger cannot-resume)
     { type: StepType.CONNECT },
     { type: StepType.WAIT_CONNECTED, timeout: 5000 },
-    
+
     // Wait for cannot-resume or events
     { type: StepType.WAIT, ms: 2000 },
-    
+
     // Should receive fresh events anyway (fallback: start_fresh)
     { type: StepType.WAIT_EVENTS, count: 3, timeout: 5000 },
-    
+
     // Verify final state
     { type: StepType.ASSERT_STATE, state: 'open' },
   ],

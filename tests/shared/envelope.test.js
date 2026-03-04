@@ -22,12 +22,16 @@ describe('Event Envelope Schema', () => {
     });
 
     it('should validate event with all optional fields', () => {
-      const event = createEnvelope('domain.user.created', { userId: '123' }, {
-        stream_id: 'users',
-        correlation_id: '550e8400-e29b-41d4-a716-446655440000',
-        sequence: 42,
-        retry: 3000,
-      });
+      const event = createEnvelope(
+        'domain.user.created',
+        { userId: '123' },
+        {
+          stream_id: 'users',
+          correlation_id: '550e8400-e29b-41d4-a716-446655440000',
+          sequence: 42,
+          retry: 3000,
+        }
+      );
       const result = validateEvent(event);
       expect(result.valid).toBe(true);
     });
@@ -182,7 +186,7 @@ describe('Event Envelope Schema', () => {
     it('should encode event to SSE format', () => {
       const event = createEnvelope('domain.test', { foo: 'bar' });
       const sse = encodeSSE(event);
-      
+
       expect(sse).toContain(`id: ${event.event_id}`);
       expect(sse).toContain('event: domain.test');
       expect(sse).toContain('data: ');
@@ -200,7 +204,7 @@ describe('Event Envelope Schema', () => {
       const event = createEnvelope('domain.test', { foo: 'bar' });
       const json = JSON.stringify(event);
       const result = decodeSSE(json);
-      
+
       expect(result.error).toBeNull();
       expect(result.envelope).toEqual(event);
     });

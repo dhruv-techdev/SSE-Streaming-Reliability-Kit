@@ -62,14 +62,11 @@ export class Assertions {
   state(expected) {
     const actual = this.context.connector?.getState();
     const passed = actual === expected;
-    
+
     return this._record(
       passed
         ? AssertionResult.pass(`State is ${expected}`)
-        : AssertionResult.fail(
-            `Expected state ${expected}, got ${actual}`,
-            { expected, actual }
-          )
+        : AssertionResult.fail(`Expected state ${expected}, got ${actual}`, { expected, actual })
     );
   }
 
@@ -78,7 +75,7 @@ export class Assertions {
    */
   isConnected() {
     const connected = this.context.connector?.connected;
-    
+
     return this._record(
       connected
         ? AssertionResult.pass('Client is connected')
@@ -92,7 +89,7 @@ export class Assertions {
   isClosed() {
     const state = this.context.connector?.getState();
     const closed = state === 'closed' || state === 'idle';
-    
+
     return this._record(
       closed
         ? AssertionResult.pass('Client is closed')
@@ -108,14 +105,14 @@ export class Assertions {
   reconnectCount(expected) {
     const actual = this.context.connector?.stats.reconnectCount || 0;
     const passed = actual === expected;
-    
+
     return this._record(
       passed
         ? AssertionResult.pass(`Reconnect count is ${expected}`)
-        : AssertionResult.fail(
-            `Expected ${expected} reconnects, got ${actual}`,
-            { expected, actual }
-          )
+        : AssertionResult.fail(`Expected ${expected} reconnects, got ${actual}`, {
+            expected,
+            actual,
+          })
     );
   }
 
@@ -125,14 +122,14 @@ export class Assertions {
   minReconnects(min) {
     const actual = this.context.connector?.stats.reconnectCount || 0;
     const passed = actual >= min;
-    
+
     return this._record(
       passed
         ? AssertionResult.pass(`Reconnect count ${actual} >= ${min}`)
-        : AssertionResult.fail(
-            `Expected at least ${min} reconnects, got ${actual}`,
-            { min, actual }
-          )
+        : AssertionResult.fail(`Expected at least ${min} reconnects, got ${actual}`, {
+            min,
+            actual,
+          })
     );
   }
 
@@ -142,14 +139,11 @@ export class Assertions {
   maxReconnects(max) {
     const actual = this.context.connector?.stats.reconnectCount || 0;
     const passed = actual <= max;
-    
+
     return this._record(
       passed
         ? AssertionResult.pass(`Reconnect count ${actual} <= ${max}`)
-        : AssertionResult.fail(
-            `Expected at most ${max} reconnects, got ${actual}`,
-            { max, actual }
-          )
+        : AssertionResult.fail(`Expected at most ${max} reconnects, got ${actual}`, { max, actual })
     );
   }
 
@@ -158,7 +152,7 @@ export class Assertions {
    */
   hasGivenUp() {
     const givenUp = this.context.connector?.hasGivenUp;
-    
+
     return this._record(
       givenUp
         ? AssertionResult.pass('Client has given up reconnecting')
@@ -171,7 +165,7 @@ export class Assertions {
    */
   hasNotGivenUp() {
     const givenUp = this.context.connector?.hasGivenUp;
-    
+
     return this._record(
       !givenUp
         ? AssertionResult.pass('Client has not given up')
@@ -185,17 +179,14 @@ export class Assertions {
   noFurtherRetries() {
     const manager = this.context.connector?.getReconnectManager();
     const hasGivenUp = manager?.hasGivenUp;
-    const pendingRetry = manager?.pendingRetryTimer !== null;
-    
+    const pendingRetry = manager?.isPending === true;
+
     const passed = hasGivenUp && !pendingRetry;
-    
+
     return this._record(
       passed
         ? AssertionResult.pass('No further retries pending')
-        : AssertionResult.fail(
-            'Expected no further retries',
-            { hasGivenUp, pendingRetry }
-          )
+        : AssertionResult.fail('Expected no further retries', { hasGivenUp, pendingRetry })
     );
   }
 
@@ -207,7 +198,7 @@ export class Assertions {
   resumeAttempted() {
     const attempts = this.context.connector?.stats.resumeAttempts || 0;
     const passed = attempts > 0;
-    
+
     return this._record(
       passed
         ? AssertionResult.pass(`Resume was attempted (${attempts} times)`)
@@ -221,7 +212,7 @@ export class Assertions {
   resumeSucceeded() {
     const successes = this.context.connector?.stats.resumeSuccesses || 0;
     const passed = successes > 0;
-    
+
     return this._record(
       passed
         ? AssertionResult.pass(`Resume succeeded (${successes} times)`)
@@ -235,7 +226,7 @@ export class Assertions {
   resumeFailed() {
     const failures = this.context.connector?.stats.resumeFailures || 0;
     const passed = failures > 0;
-    
+
     return this._record(
       passed
         ? AssertionResult.pass(`Resume failed (${failures} times)`)
@@ -248,7 +239,7 @@ export class Assertions {
    */
   cannotResumeReceived() {
     const received = this.context.cannotResumeReceived;
-    
+
     return this._record(
       received
         ? AssertionResult.pass('Cannot-resume signal received')
@@ -262,14 +253,12 @@ export class Assertions {
   eventsResumedFrom(expectedSequence) {
     const events = this.context.events;
     if (events.length === 0) {
-      return this._record(
-        AssertionResult.fail('No events received to verify resume point')
-      );
+      return this._record(AssertionResult.fail('No events received to verify resume point'));
     }
 
     const firstSeq = events[0].sequence;
     const passed = firstSeq >= expectedSequence;
-    
+
     return this._record(
       passed
         ? AssertionResult.pass(`Events resumed from sequence ${firstSeq}`)
@@ -288,14 +277,14 @@ export class Assertions {
   duplicatesDropped(expected) {
     const actual = this.context.duplicatesDropped || 0;
     const passed = actual === expected;
-    
+
     return this._record(
       passed
         ? AssertionResult.pass(`${expected} duplicates dropped`)
-        : AssertionResult.fail(
-            `Expected ${expected} duplicates dropped, got ${actual}`,
-            { expected, actual }
-          )
+        : AssertionResult.fail(`Expected ${expected} duplicates dropped, got ${actual}`, {
+            expected,
+            actual,
+          })
     );
   }
 
@@ -305,14 +294,14 @@ export class Assertions {
   minDuplicatesDropped(min) {
     const actual = this.context.duplicatesDropped || 0;
     const passed = actual >= min;
-    
+
     return this._record(
       passed
         ? AssertionResult.pass(`${actual} duplicates dropped >= ${min}`)
-        : AssertionResult.fail(
-            `Expected at least ${min} duplicates dropped, got ${actual}`,
-            { min, actual }
-          )
+        : AssertionResult.fail(`Expected at least ${min} duplicates dropped, got ${actual}`, {
+            min,
+            actual,
+          })
     );
   }
 
@@ -321,11 +310,11 @@ export class Assertions {
    */
   noDuplicatesProcessed() {
     const events = this.context.events;
-    const eventIds = events.map(e => e.event_id);
+    const eventIds = events.map((e) => e.event_id);
     const uniqueIds = new Set(eventIds);
-    
+
     const passed = eventIds.length === uniqueIds.size;
-    
+
     return this._record(
       passed
         ? AssertionResult.pass('No duplicate events processed')
@@ -342,7 +331,7 @@ export class Assertions {
   dedupeCounterIncreased() {
     const stats = this.context.connector?.getDedupeCache()?.getStats();
     const passed = stats?.totalDuplicates > 0;
-    
+
     return this._record(
       passed
         ? AssertionResult.pass(`Dedupe counter: ${stats.totalDuplicates}`)
@@ -358,7 +347,7 @@ export class Assertions {
   livenessFailureOccurred() {
     const failures = this.context.livenessFailures || 0;
     const passed = failures > 0;
-    
+
     return this._record(
       passed
         ? AssertionResult.pass(`Liveness failure occurred (${failures} times)`)
@@ -372,14 +361,14 @@ export class Assertions {
   livenessFailures(expected) {
     const actual = this.context.livenessFailures || 0;
     const passed = actual === expected;
-    
+
     return this._record(
       passed
         ? AssertionResult.pass(`Liveness failures: ${expected}`)
-        : AssertionResult.fail(
-            `Expected ${expected} liveness failures, got ${actual}`,
-            { expected, actual }
-          )
+        : AssertionResult.fail(`Expected ${expected} liveness failures, got ${actual}`, {
+            expected,
+            actual,
+          })
     );
   }
 
@@ -389,16 +378,16 @@ export class Assertions {
   reconnectAfterLiveness() {
     const failures = this.context.livenessFailures || 0;
     const reconnects = this.context.connector?.stats.reconnectCount || 0;
-    
+
     const passed = failures > 0 && reconnects > 0;
-    
+
     return this._record(
       passed
         ? AssertionResult.pass('Reconnect attempted after liveness failure')
-        : AssertionResult.fail(
-            'Expected reconnect after liveness failure',
-            { livenessFailures: failures, reconnects }
-          )
+        : AssertionResult.fail('Expected reconnect after liveness failure', {
+            livenessFailures: failures,
+            reconnects,
+          })
     );
   }
 
@@ -410,14 +399,11 @@ export class Assertions {
   eventsReceived(expected) {
     const actual = this.context.events.length;
     const passed = actual === expected;
-    
+
     return this._record(
       passed
         ? AssertionResult.pass(`Received ${expected} events`)
-        : AssertionResult.fail(
-            `Expected ${expected} events, got ${actual}`,
-            { expected, actual }
-          )
+        : AssertionResult.fail(`Expected ${expected} events, got ${actual}`, { expected, actual })
     );
   }
 
@@ -427,14 +413,11 @@ export class Assertions {
   minEvents(min) {
     const actual = this.context.events.length;
     const passed = actual >= min;
-    
+
     return this._record(
       passed
         ? AssertionResult.pass(`Received ${actual} events >= ${min}`)
-        : AssertionResult.fail(
-            `Expected at least ${min} events, got ${actual}`,
-            { min, actual }
-          )
+        : AssertionResult.fail(`Expected at least ${min} events, got ${actual}`, { min, actual })
     );
   }
 
@@ -444,14 +427,11 @@ export class Assertions {
   maxEvents(max) {
     const actual = this.context.events.length;
     const passed = actual <= max;
-    
+
     return this._record(
       passed
         ? AssertionResult.pass(`Received ${actual} events <= ${max}`)
-        : AssertionResult.fail(
-            `Expected at most ${max} events, got ${actual}`,
-            { max, actual }
-          )
+        : AssertionResult.fail(`Expected at most ${max} events, got ${actual}`, { max, actual })
     );
   }
 
@@ -459,9 +439,10 @@ export class Assertions {
    * Assert event type was received
    */
   receivedEventType(eventType) {
-    const found = this.context.events.some(e => e.type === eventType) ||
-                  this.context.controlEvents.some(e => e.type === eventType);
-    
+    const found =
+      this.context.events.some((e) => e.type === eventType) ||
+      this.context.controlEvents.some((e) => e.type === eventType);
+
     return this._record(
       found
         ? AssertionResult.pass(`Received event type: ${eventType}`)
@@ -478,14 +459,15 @@ export class Assertions {
     const stats = this.context.connector?.getStats();
     const actual = stats?.[name];
     const passed = actual === expected;
-    
+
     return this._record(
       passed
         ? AssertionResult.pass(`Stat ${name} = ${expected}`)
-        : AssertionResult.fail(
-            `Expected ${name} = ${expected}, got ${actual}`,
-            { name, expected, actual }
-          )
+        : AssertionResult.fail(`Expected ${name} = ${expected}, got ${actual}`, {
+            name,
+            expected,
+            actual,
+          })
     );
   }
 
@@ -496,14 +478,11 @@ export class Assertions {
     const stats = this.context.connector?.getStats();
     const actual = stats?.[name] || 0;
     const passed = actual >= min;
-    
+
     return this._record(
       passed
         ? AssertionResult.pass(`Stat ${name} ${actual} >= ${min}`)
-        : AssertionResult.fail(
-            `Expected ${name} >= ${min}, got ${actual}`,
-            { name, min, actual }
-          )
+        : AssertionResult.fail(`Expected ${name} >= ${min}, got ${actual}`, { name, min, actual })
     );
   }
 
@@ -514,14 +493,11 @@ export class Assertions {
     const stats = this.context.connector?.getStats();
     const actual = stats?.[name] || 0;
     const passed = actual <= max;
-    
+
     return this._record(
       passed
         ? AssertionResult.pass(`Stat ${name} ${actual} <= ${max}`)
-        : AssertionResult.fail(
-            `Expected ${name} <= ${max}, got ${actual}`,
-            { name, max, actual }
-          )
+        : AssertionResult.fail(`Expected ${name} <= ${max}, got ${actual}`, { name, max, actual })
     );
   }
 
@@ -532,7 +508,7 @@ export class Assertions {
    */
   custom(description, predicate) {
     const passed = predicate(this.context);
-    
+
     return this._record(
       passed
         ? AssertionResult.pass(description)
@@ -551,9 +527,9 @@ export class Assertions {
    * Get summary of assertions
    */
   getSummary() {
-    const passed = this.results.filter(r => r.passed).length;
-    const failed = this.results.filter(r => !r.passed).length;
-    
+    const passed = this.results.filter((r) => r.passed).length;
+    const failed = this.results.filter((r) => !r.passed).length;
+
     return {
       total: this.results.length,
       passed,

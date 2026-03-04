@@ -21,7 +21,7 @@ const STATUS_ICONS = {
   [ResultStatus.PASSED]: 'âœ…',
   [ResultStatus.FAILED]: 'âŒ',
   [ResultStatus.TIMEOUT]: 'â±ï¸',
-  [ResultStatus.ERROR]: 'í²¥',
+  [ResultStatus.ERROR]: 'ï¿½ï¿½ï¿½',
 };
 
 /**
@@ -76,15 +76,17 @@ export class Reporter {
     // Header
     lines.push('');
     lines.push(this._color('bold', 'â•'.repeat(60)));
-    lines.push(`${icon} ${this._color('bold', result.name)}: ${this._color(statusColor, result.status)}`);
+    lines.push(
+      `${icon} ${this._color('bold', result.name)}: ${this._color(statusColor, result.status)}`
+    );
     lines.push(this._color('bold', 'â•'.repeat(60)));
 
     // Key metrics snapshot (SSRK-206)
     lines.push('');
-    lines.push(this._color('blue', 'í³Š Metrics:'));
+    lines.push(this._color('blue', 'ï¿½ï¿½ï¿½ Metrics:'));
     lines.push(`   Duration:          ${result.duration}ms`);
     lines.push(`   Events received:   ${result.events?.length || 0}`);
-    
+
     if (result.stats) {
       lines.push(`   Reconnects:        ${result.stats.reconnectCount || 0}`);
       lines.push(`   Duplicates dropped: ${result.stats.duplicatesIgnored || 0}`);
@@ -96,13 +98,13 @@ export class Reporter {
     // Steps summary
     if (result.steps && result.steps.length > 0) {
       lines.push('');
-      lines.push(this._color('blue', 'í³‹ Steps:'));
-      
+      lines.push(this._color('blue', 'ï¿½ï¿½ï¿½ Steps:'));
+
       for (const step of result.steps) {
         const stepIcon = step.status === 'passed' ? 'âœ“' : 'âœ—';
         const stepColor = step.status === 'passed' ? 'green' : 'red';
         lines.push(`   ${this._color(stepColor, stepIcon)} ${step.type}`);
-        
+
         if (step.status === 'failed' && step.message) {
           lines.push(`     ${this._color('red', 'â†’ ' + step.message)}`);
         }
@@ -121,11 +123,11 @@ export class Reporter {
     // Reason for failure
     if (result.message && result.status !== ResultStatus.PASSED) {
       lines.push('');
-      lines.push(this._color('yellow', `í²¬ ${result.message}`));
+      lines.push(this._color('yellow', `ï¿½ï¿½ï¿½ ${result.message}`));
     }
 
     lines.push('');
-    
+
     return lines.join('\n');
   }
 
@@ -133,22 +135,26 @@ export class Reporter {
    * JSON format for single scenario
    */
   _reportScenarioJSON(result) {
-    return JSON.stringify({
-      name: result.name,
-      status: result.status,
-      duration: result.duration,
-      metrics: {
-        eventsReceived: result.events?.length || 0,
-        reconnects: result.stats?.reconnectCount || 0,
-        duplicatesDropped: result.stats?.duplicatesIgnored || 0,
-        livenessFailures: result.stats?.livenessFailures || 0,
-        resumeAttempts: result.stats?.resumeAttempts || 0,
-        resumeSuccesses: result.stats?.resumeSuccesses || 0,
+    return JSON.stringify(
+      {
+        name: result.name,
+        status: result.status,
+        duration: result.duration,
+        metrics: {
+          eventsReceived: result.events?.length || 0,
+          reconnects: result.stats?.reconnectCount || 0,
+          duplicatesDropped: result.stats?.duplicatesIgnored || 0,
+          livenessFailures: result.stats?.livenessFailures || 0,
+          resumeAttempts: result.stats?.resumeAttempts || 0,
+          resumeSuccesses: result.stats?.resumeSuccesses || 0,
+        },
+        steps: result.steps,
+        errors: result.errors,
+        message: result.message,
       },
-      steps: result.steps,
-      errors: result.errors,
-      message: result.message,
-    }, null, 2);
+      null,
+      2
+    );
   }
 
   /**
@@ -166,13 +172,13 @@ export class Reporter {
    */
   _reportSummaryConsole(results) {
     const lines = [];
-    
-    const passed = results.filter(r => r.status === ResultStatus.PASSED).length;
-    const failed = results.filter(r => r.status === ResultStatus.FAILED).length;
-    const timeout = results.filter(r => r.status === ResultStatus.TIMEOUT).length;
-    const error = results.filter(r => r.status === ResultStatus.ERROR).length;
+
+    const passed = results.filter((r) => r.status === ResultStatus.PASSED).length;
+    const failed = results.filter((r) => r.status === ResultStatus.FAILED).length;
+    const timeout = results.filter((r) => r.status === ResultStatus.TIMEOUT).length;
+    const error = results.filter((r) => r.status === ResultStatus.ERROR).length;
     const total = results.length;
-    
+
     const totalDuration = results.reduce((sum, r) => sum + r.duration, 0);
     const allPassed = failed === 0 && timeout === 0 && error === 0;
 
@@ -186,15 +192,15 @@ export class Reporter {
     lines.push(this._color('green', `  âœ… Passed:   ${passed}`));
     if (failed > 0) lines.push(this._color('red', `  âŒ Failed:   ${failed}`));
     if (timeout > 0) lines.push(this._color('yellow', `  â±ï¸  Timeout:  ${timeout}`));
-    if (error > 0) lines.push(this._color('red', `  í²¥ Error:    ${error}`));
+    if (error > 0) lines.push(this._color('red', `  ï¿½ï¿½ï¿½ Error:    ${error}`));
     lines.push(this._color('gray', `  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€`));
-    lines.push(`  í³Š Total:    ${total}`);
+    lines.push(`  ï¿½ï¿½ï¿½ Total:    ${total}`);
     lines.push('');
     lines.push(`  â±ï¸  Duration: ${totalDuration}ms`);
     lines.push('');
 
     // Failed scenarios list
-    const failedScenarios = results.filter(r => r.status !== ResultStatus.PASSED);
+    const failedScenarios = results.filter((r) => r.status !== ResultStatus.PASSED);
     if (failedScenarios.length > 0) {
       lines.push(this._color('red', '  Failed scenarios:'));
       for (const scenario of failedScenarios) {
@@ -207,7 +213,7 @@ export class Reporter {
     const verdict = allPassed ? 'ALL TESTS PASSED' : 'TESTS FAILED';
     const verdictColor = allPassed ? 'green' : 'red';
     lines.push(this._color('bold', 'â•'.repeat(60)));
-    lines.push(this._color(verdictColor, `  ${allPassed ? 'í¾‰' : 'í²”'} ${verdict}`));
+    lines.push(this._color(verdictColor, `  ${allPassed ? 'ï¿½ï¿½ï¿½' : 'ï¿½ï¿½ï¿½'} ${verdict}`));
     lines.push(this._color('bold', 'â•'.repeat(60)));
     lines.push('');
 
@@ -218,32 +224,36 @@ export class Reporter {
    * JSON format for summary
    */
   _reportSummaryJSON(results) {
-    const passed = results.filter(r => r.status === ResultStatus.PASSED).length;
-    const failed = results.filter(r => r.status !== ResultStatus.PASSED).length;
-    
-    return JSON.stringify({
-      summary: {
-        total: results.length,
-        passed,
-        failed,
-        duration: results.reduce((sum, r) => sum + r.duration, 0),
-        allPassed: failed === 0,
+    const passed = results.filter((r) => r.status === ResultStatus.PASSED).length;
+    const failed = results.filter((r) => r.status !== ResultStatus.PASSED).length;
+
+    return JSON.stringify(
+      {
+        summary: {
+          total: results.length,
+          passed,
+          failed,
+          duration: results.reduce((sum, r) => sum + r.duration, 0),
+          allPassed: failed === 0,
+        },
+        results: results.map((r) => ({
+          name: r.name,
+          status: r.status,
+          duration: r.duration,
+          message: r.message,
+        })),
       },
-      results: results.map(r => ({
-        name: r.name,
-        status: r.status,
-        duration: r.duration,
-        message: r.message,
-      })),
-    }, null, 2);
+      null,
+      2
+    );
   }
 
   /**
    * Report JUnit XML format (for CI integration)
    */
   reportJUnit(results) {
-    const passed = results.filter(r => r.status === ResultStatus.PASSED).length;
-    const failed = results.filter(r => r.status !== ResultStatus.PASSED).length;
+    const passed = results.filter((r) => r.status === ResultStatus.PASSED).length;
+    const failed = results.filter((r) => r.status !== ResultStatus.PASSED).length;
     const totalDuration = results.reduce((sum, r) => sum + r.duration, 0) / 1000;
 
     let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
@@ -252,12 +262,12 @@ export class Reporter {
     for (const result of results) {
       const duration = (result.duration / 1000).toFixed(3);
       xml += `  <testcase name="${this._escapeXml(result.name)}" time="${duration}">\n`;
-      
+
       if (result.status !== ResultStatus.PASSED) {
         const message = this._escapeXml(result.message || result.status);
         xml += `    <failure message="${message}">${this._escapeXml(result.errors?.join('\n') || '')}</failure>\n`;
       }
-      
+
       xml += `  </testcase>\n`;
     }
 

@@ -10,7 +10,7 @@ import { createLogger, LogLevel, LogComponent, LogEvent } from '../../shared/src
 export function createServerLogger(options = {}) {
   const logger = createLogger({
     component: LogComponent.SERVER,
-    level: options.level || (process.env.LOG_LEVEL || LogLevel.INFO),
+    level: options.level || process.env.LOG_LEVEL || LogLevel.INFO,
     enabled: options.enabled !== false,
     context: options.context || {},
   });
@@ -59,11 +59,15 @@ export function createServerLogger(options = {}) {
     },
 
     resumeSuccess(connectionId, eventCount, details = {}) {
-      logger.info(LogEvent.RESUME_SUCCESS, `Resume success: ${connectionId} (${eventCount} events)`, {
-        connection_id: connectionId,
-        event_count: eventCount,
-        ...details,
-      });
+      logger.info(
+        LogEvent.RESUME_SUCCESS,
+        `Resume success: ${connectionId} (${eventCount} events)`,
+        {
+          connection_id: connectionId,
+          event_count: eventCount,
+          ...details,
+        }
+      );
     },
 
     resumeCannotResume(connectionId, reason, details = {}) {
@@ -92,12 +96,16 @@ export function createServerLogger(options = {}) {
     },
 
     replayTruncated(connectionId, requested, sent, details = {}) {
-      logger.warn(LogEvent.REPLAY_TRUNCATED, `Replay truncated: ${connectionId} (${sent}/${requested})`, {
-        connection_id: connectionId,
-        requested,
-        sent,
-        ...details,
-      });
+      logger.warn(
+        LogEvent.REPLAY_TRUNCATED,
+        `Replay truncated: ${connectionId} (${sent}/${requested})`,
+        {
+          connection_id: connectionId,
+          requested,
+          sent,
+          ...details,
+        }
+      );
     },
 
     // Heartbeat events

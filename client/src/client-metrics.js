@@ -52,25 +52,19 @@ export class ConsoleMetricsSink extends MetricsSink {
 
   incCounter(name, value = 1, labels = {}) {
     if (!this.enabled) return;
-    const labelStr = Object.keys(labels).length > 0 
-      ? ` ${JSON.stringify(labels)}` 
-      : '';
+    const labelStr = Object.keys(labels).length > 0 ? ` ${JSON.stringify(labels)}` : '';
     console.log(`${this.prefix} COUNTER ${name} +${value}${labelStr}`);
   }
 
   setGauge(name, value, labels = {}) {
     if (!this.enabled) return;
-    const labelStr = Object.keys(labels).length > 0 
-      ? ` ${JSON.stringify(labels)}` 
-      : '';
+    const labelStr = Object.keys(labels).length > 0 ? ` ${JSON.stringify(labels)}` : '';
     console.log(`${this.prefix} GAUGE ${name} = ${value}${labelStr}`);
   }
 
   observe(name, value, labels = {}) {
     if (!this.enabled) return;
-    const labelStr = Object.keys(labels).length > 0 
-      ? ` ${JSON.stringify(labels)}` 
-      : '';
+    const labelStr = Object.keys(labels).length > 0 ? ` ${JSON.stringify(labels)}` : '';
     console.log(`${this.prefix} HISTOGRAM ${name} ${value}${labelStr}`);
   }
 }
@@ -88,7 +82,10 @@ export class InMemoryMetricsSink extends MetricsSink {
   }
 
   _labelKey(name, labels) {
-    const labelStr = Object.keys(labels).sort().map(k => `${k}="${labels[k]}"`).join(',');
+    const labelStr = Object.keys(labels)
+      .sort()
+      .map((k) => `${k}="${labels[k]}"`)
+      .join(',');
     return labelStr ? `${name}{${labelStr}}` : name;
   }
 
@@ -152,10 +149,10 @@ export class ClientMetrics {
   constructor(options = {}) {
     // Metrics sink (SSRK-166)
     this.sink = options.sink || new MetricsSink();
-    
+
     // Metric names prefix
     this.prefix = options.prefix || 'sse_client';
-    
+
     // Track lag measurements
     this._lagMeasurements = [];
     this._maxLagSamples = options.maxLagSamples || 100;
@@ -198,7 +195,7 @@ export class ClientMetrics {
    */
   recordEventLag(lagMs) {
     this.sink.observe(`${this.prefix}_event_lag_ms`, lagMs);
-    
+
     // Track internally for stats
     this._lagMeasurements.push(lagMs);
     if (this._lagMeasurements.length > this._maxLagSamples) {
@@ -279,11 +276,11 @@ export class ClientMetrics {
   setConnectionState(state) {
     // Map state to numeric value for gauge
     const stateMap = {
-      'idle': 0,
-      'connecting': 1,
-      'open': 2,
-      'retrying': 3,
-      'closed': 4,
+      idle: 0,
+      connecting: 1,
+      open: 2,
+      retrying: 3,
+      closed: 4,
     };
     this.sink.setGauge(`${this.prefix}_connection_state`, stateMap[state] || -1, { state });
   }

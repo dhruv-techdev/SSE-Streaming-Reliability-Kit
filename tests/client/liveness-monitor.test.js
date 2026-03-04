@@ -146,13 +146,13 @@ describe('LivenessMonitor', () => {
       });
 
       monitor.start();
-      
+
       // Pass grace period
       vi.advanceTimersByTime(500);
-      
+
       // Record heartbeat
       monitor.recordHeartbeat();
-      
+
       // Advance past timeout
       vi.advanceTimersByTime(3000);
 

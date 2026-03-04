@@ -1,0 +1,159 @@
+# Release Workflow (SSRK-222)
+# Manual trigger for creating releases
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.0.0)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Is this a pre-release?'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  # ============================================================
+  # Validate Release
+  # ============================================================
+  validate:
+    name: Validate Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate version format
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+            echo "❌ Invalid version format: $VERSION"
+            echo "Expected format: X.Y.Z or X.Y.Z-prerelease"
+            exit 1
+          fi
+          echo "✓ Version format valid: $VERSION"
+
+      - name: Check tag doesn't exist
+        run: |
+          if git rev-parse "v${{ github.event.inputs.version }}" >/dev/null 2>&1; then
+            echo "❌ Tag v${{ github.event.inputs.version }} already exists"
+            exit 1
+          fi
+          echo "✓ Tag v${{ github.event.inputs.version }} is available"
+
+  # ============================================================
+  # Run Full CI
+  # ============================================================
+  ci:
+    name: CI Checks
+    needs: validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run format check
+        run: npm run format:check
+
+      - name: Run tests
+        run: npm test
+
+      - name: Run harness
+        run: npm run harness:all -- --fail-fast
+        timeout-minutes: 10
+
+  # ============================================================
+  # Build & Publish
+  # ============================================================
+  release:
+    name: Create Release
+    needs: ci
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Update version
+        run: |
+          npm version ${{ github.event.inputs.version }} --no-git-tag-version
+          echo "Updated package.json to version ${{ github.event.inputs.version }}"
+
+      - name: Build
+        run: npm run build
+
+      - name: Configure Git
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+
+      - name: Commit version bump
+        run: |
+          git add -A
+          git commit -m "chore: release v${{ github.event.inputs.version }}"
+
+      - name: Create tag
+        run: |
+          git tag -a "v${{ github.event.inputs.version }}" -m "Release v${{ github.event.inputs.version }}"
+
+      - name: Push changes
+        run: |
+          git push origin main
+          git push origin "v${{ github.event.inputs.version }}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ github.event.inputs.version }}
+          name: v${{ github.event.inputs.version }}
+          prerelease: ${{ github.event.inputs.prerelease }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to npm
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Release Summary
+        run: |
+          echo "╔═══════════════════════════════════════════════════════════╗"
+          echo "║                    ✅ RELEASE COMPLETE                    ║"
+          echo "╠═══════════════════════════════════════════════════════════╣"
+          echo "║  Version: v${{ github.event.inputs.version }}"
+          echo "║  Tag: v${{ github.event.inputs.version }}"
+          echo "║  npm: https://www.npmjs.com/package/sse-streaming-reliability-kit"
+          echo "╚═══════════════════════════════════════════════════════════╝"

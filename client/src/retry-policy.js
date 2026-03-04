@@ -7,12 +7,12 @@
  * Default retry policy configuration
  */
 export const DEFAULT_RETRY_POLICY = {
-  baseDelayMs: 1000,        // Initial delay: 1 second
-  maxDelayMs: 30000,        // Maximum delay: 30 seconds
-  maxAttempts: 10,          // Maximum retry attempts (0 = unlimited)
-  maxRetryTimeMs: 0,        // Maximum total retry time (0 = unlimited) (SSRK-107)
-  jitterPct: 0.2,           // 20% jitter (±10%)
-  backoffMultiplier: 2,     // Exponential multiplier
+  baseDelayMs: 1000, // Initial delay: 1 second
+  maxDelayMs: 30000, // Maximum delay: 30 seconds
+  maxAttempts: 10, // Maximum retry attempts (0 = unlimited)
+  maxRetryTimeMs: 0, // Maximum total retry time (0 = unlimited) (SSRK-107)
+  jitterPct: 0.2, // 20% jitter (±10%)
+  backoffMultiplier: 2, // Exponential multiplier
 };
 
 /**
@@ -28,7 +28,7 @@ export class RetryPolicy {
       ...DEFAULT_RETRY_POLICY,
       ...config,
     };
-    
+
     this._validate();
   }
 
@@ -36,8 +36,9 @@ export class RetryPolicy {
    * Validate configuration
    */
   _validate() {
-    const { baseDelayMs, maxDelayMs, maxAttempts, maxRetryTimeMs, jitterPct, backoffMultiplier } = this.config;
-    
+    const { baseDelayMs, maxDelayMs, maxAttempts, maxRetryTimeMs, jitterPct, backoffMultiplier } =
+      this.config;
+
     if (baseDelayMs < 0) throw new Error('baseDelayMs must be >= 0');
     if (maxDelayMs < baseDelayMs) throw new Error('maxDelayMs must be >= baseDelayMs');
     if (maxAttempts < 0) throw new Error('maxAttempts must be >= 0');
@@ -65,7 +66,7 @@ export class RetryPolicy {
   addJitter(delay) {
     const { jitterPct } = this.config;
     if (jitterPct === 0) return delay;
-    
+
     const jitterRange = delay * jitterPct;
     const jitter = (Math.random() - 0.5) * jitterRange;
     return Math.max(0, Math.round(delay + jitter));
@@ -127,7 +128,7 @@ export class RetryPolicy {
    */
   getRetryInfo(attempt, elapsedMs = 0) {
     const { shouldRetry, reason } = this.shouldRetry(attempt, elapsedMs);
-    
+
     return {
       shouldRetry,
       stopReason: reason,
@@ -163,50 +164,56 @@ export class RetryPolicy {
  */
 export const RetryPolicies = {
   default: () => new RetryPolicy(),
-  
-  aggressive: () => new RetryPolicy({
-    baseDelayMs: 500,
-    maxDelayMs: 10000,
-    maxAttempts: 20,
-    jitterPct: 0.3,
-  }),
-  
-  conservative: () => new RetryPolicy({
-    baseDelayMs: 2000,
-    maxDelayMs: 60000,
-    maxAttempts: 5,
-    jitterPct: 0.2,
-  }),
-  
+
+  aggressive: () =>
+    new RetryPolicy({
+      baseDelayMs: 500,
+      maxDelayMs: 10000,
+      maxAttempts: 20,
+      jitterPct: 0.3,
+    }),
+
+  conservative: () =>
+    new RetryPolicy({
+      baseDelayMs: 2000,
+      maxDelayMs: 60000,
+      maxAttempts: 5,
+      jitterPct: 0.2,
+    }),
+
   // Time-capped: try for max 5 minutes (SSRK-107)
-  timeCapped: () => new RetryPolicy({
-    baseDelayMs: 1000,
-    maxDelayMs: 30000,
-    maxAttempts: 0,           // Unlimited attempts
-    maxRetryTimeMs: 300000,   // But stop after 5 minutes
-    jitterPct: 0.25,
-  }),
-  
+  timeCapped: () =>
+    new RetryPolicy({
+      baseDelayMs: 1000,
+      maxDelayMs: 30000,
+      maxAttempts: 0, // Unlimited attempts
+      maxRetryTimeMs: 300000, // But stop after 5 minutes
+      jitterPct: 0.25,
+    }),
+
   // Both caps: max 10 attempts OR 2 minutes
-  balanced: () => new RetryPolicy({
-    baseDelayMs: 1000,
-    maxDelayMs: 15000,
-    maxAttempts: 10,
-    maxRetryTimeMs: 120000,
-    jitterPct: 0.2,
-  }),
-  
-  none: () => new RetryPolicy({
-    maxAttempts: 1, // Only one attempt, no retries
-  }),
-  
-  persistent: () => new RetryPolicy({
-    baseDelayMs: 1000,
-    maxDelayMs: 60000,
-    maxAttempts: 0,
-    maxRetryTimeMs: 0,
-    jitterPct: 0.25,
-  }),
+  balanced: () =>
+    new RetryPolicy({
+      baseDelayMs: 1000,
+      maxDelayMs: 15000,
+      maxAttempts: 10,
+      maxRetryTimeMs: 120000,
+      jitterPct: 0.2,
+    }),
+
+  none: () =>
+    new RetryPolicy({
+      maxAttempts: 1, // Only one attempt, no retries
+    }),
+
+  persistent: () =>
+    new RetryPolicy({
+      baseDelayMs: 1000,
+      maxDelayMs: 60000,
+      maxAttempts: 0,
+      maxRetryTimeMs: 0,
+      jitterPct: 0.25,
+    }),
 };
 
 /**

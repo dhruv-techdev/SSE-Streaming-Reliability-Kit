@@ -14,7 +14,7 @@ describe('RetryPolicy', () => {
     it('should use default config when none provided', () => {
       const policy = new RetryPolicy();
       const config = policy.getConfig();
-      
+
       expect(config.baseDelayMs).toBe(DEFAULT_RETRY_POLICY.baseDelayMs);
       expect(config.maxDelayMs).toBe(DEFAULT_RETRY_POLICY.maxDelayMs);
       expect(config.maxAttempts).toBe(DEFAULT_RETRY_POLICY.maxAttempts);
@@ -31,7 +31,7 @@ describe('RetryPolicy', () => {
         jitterPct: 0.1,
       });
       const config = policy.getConfig();
-      
+
       expect(config.baseDelayMs).toBe(500);
       expect(config.maxRetryTimeMs).toBe(60000);
     });
@@ -96,7 +96,7 @@ describe('RetryPolicy', () => {
   describe('shouldRetryByAttempts (SSRK-106)', () => {
     it('should return true when attempts remain', () => {
       const policy = new RetryPolicy({ maxAttempts: 3 });
-      
+
       expect(policy.shouldRetryByAttempts(0)).toBe(true);
       expect(policy.shouldRetryByAttempts(1)).toBe(true);
       expect(policy.shouldRetryByAttempts(2)).toBe(true);
@@ -104,14 +104,14 @@ describe('RetryPolicy', () => {
 
     it('should return false when max attempts reached', () => {
       const policy = new RetryPolicy({ maxAttempts: 3 });
-      
+
       expect(policy.shouldRetryByAttempts(3)).toBe(false);
       expect(policy.shouldRetryByAttempts(4)).toBe(false);
     });
 
     it('should return true when maxAttempts is 0 (unlimited)', () => {
       const policy = new RetryPolicy({ maxAttempts: 0 });
-      
+
       expect(policy.shouldRetryByAttempts(100)).toBe(true);
     });
   });
@@ -119,7 +119,7 @@ describe('RetryPolicy', () => {
   describe('shouldRetryByTime (SSRK-107)', () => {
     it('should return true when time remains', () => {
       const policy = new RetryPolicy({ maxRetryTimeMs: 60000 });
-      
+
       expect(policy.shouldRetryByTime(0)).toBe(true);
       expect(policy.shouldRetryByTime(30000)).toBe(true);
       expect(policy.shouldRetryByTime(59999)).toBe(true);
@@ -127,14 +127,14 @@ describe('RetryPolicy', () => {
 
     it('should return false when max time exceeded', () => {
       const policy = new RetryPolicy({ maxRetryTimeMs: 60000 });
-      
+
       expect(policy.shouldRetryByTime(60000)).toBe(false);
       expect(policy.shouldRetryByTime(60001)).toBe(false);
     });
 
     it('should return true when maxRetryTimeMs is 0 (unlimited)', () => {
       const policy = new RetryPolicy({ maxRetryTimeMs: 0 });
-      
+
       expect(policy.shouldRetryByTime(999999999)).toBe(true);
     });
   });
@@ -148,11 +148,11 @@ describe('RetryPolicy', () => {
 
       // Within both limits
       expect(policy.shouldRetry(2, 30000).shouldRetry).toBe(true);
-      
+
       // Exceeds attempts
       expect(policy.shouldRetry(5, 30000).shouldRetry).toBe(false);
       expect(policy.shouldRetry(5, 30000).reason).toBe('max_attempts_reached');
-      
+
       // Exceeds time
       expect(policy.shouldRetry(2, 60001).shouldRetry).toBe(false);
       expect(policy.shouldRetry(2, 60001).reason).toBe('max_retry_time_exceeded');
@@ -180,7 +180,7 @@ describe('RetryPolicy', () => {
       });
 
       const info = policy.getRetryInfo(2, 10000);
-      
+
       expect(info.shouldRetry).toBe(true);
       expect(info.stopReason).toBeNull();
       expect(info.delay).toBeGreaterThan(0);
@@ -194,7 +194,7 @@ describe('RetryPolicy', () => {
       const policy = new RetryPolicy({ maxAttempts: 2 });
 
       const info = policy.getRetryInfo(5, 0);
-      
+
       expect(info.shouldRetry).toBe(false);
       expect(info.stopReason).toBe('max_attempts_reached');
     });

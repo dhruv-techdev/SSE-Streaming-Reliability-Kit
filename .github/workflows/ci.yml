@@ -1,0 +1,212 @@
+# CI Pipeline with Quality Gates (US-24)
+# Runs lint, format check, unit tests, and harness scenarios on every push/PR
+
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+# Cancel in-progress runs for the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================================
+  # Install & Cache Dependencies (SSRK-209)
+  # ============================================================
+  install:
+    name: Install Dependencies
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+  # ============================================================
+  # Lint Gate (SSRK-210)
+  # ============================================================
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    needs: install
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+  # ============================================================
+  # Format Check Gate (SSRK-211)
+  # ============================================================
+  format:
+    name: Format Check
+    runs-on: ubuntu-latest
+    needs: install
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check formatting
+        run: npm run format:check
+
+  # ============================================================
+  # Unit Test Gate (SSRK-212)
+  # ============================================================
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: install
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test -- --reporter=verbose
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-results
+          path: |
+            coverage/
+            test-results/
+          retention-days: 7
+
+  # ============================================================
+  # Harness Scenario Gate (SSRK-213)
+  # ============================================================
+  harness:
+    name: Harness Scenarios
+    runs-on: ubuntu-latest
+    needs: [lint, format, test]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run harness scenarios
+        run: npm run harness run-all -- --fail-fast
+        timeout-minutes: 10
+
+      - name: Upload harness results
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: harness-results
+          path: harness-results/
+          retention-days: 7
+
+  # ============================================================
+  # Build Gate (SSRK-214)
+  # ============================================================
+  build:
+    name: Build Check
+    runs-on: ubuntu-latest
+    needs: install
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify project structure
+        run: |
+          echo "Checking project structure..."
+          test -f package.json
+          test -f server/src/server.js
+          test -f client/src/sse-connector.js
+          test -d shared/src
+          test -d harness/src
+          echo "✓ Project structure verified"
+
+      - name: Verify imports
+        run: |
+          echo "Checking module imports..."
+          node -e "import('./server/src/index.js').then(() => console.log('✓ Server modules OK'))"
+          node -e "import('./client/src/index.js').then(() => console.log('✓ Client modules OK'))"
+          node -e "import('./shared/src/index.js').then(() => console.log('✓ Shared modules OK'))"
+          node -e "import('./harness/src/index.js').then(() => console.log('✓ Harness modules OK'))"
+
+  # ============================================================
+  # Final Status Check
+  # ============================================================
+  ci-success:
+    name: CI Success
+    runs-on: ubuntu-latest
+    needs: [lint, format, test, harness, build]
+    if: success()
+
+    steps:
+      - name: CI Passed
+        run: |
+          echo "╔═══════════════════════════════════════════════════════════╗"
+          echo "║                    ✅ CI PASSED                           ║"
+          echo "╠═══════════════════════════════════════════════════════════╣"
+          echo "║  ✓ Lint check passed                                      ║"
+          echo "║  ✓ Format check passed                                    ║"
+          echo "║  ✓ Unit tests passed                                      ║"
+          echo "║  ✓ Harness scenarios passed                               ║"
+          echo "║  ✓ Build check passed                                     ║"
+          echo "╚═══════════════════════════════════════════════════════════╝"

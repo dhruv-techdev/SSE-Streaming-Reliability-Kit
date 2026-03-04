@@ -11,9 +11,9 @@ describe('Server Metrics Integration', () => {
 
   beforeAll(async () => {
     serverProcess = spawn('node', ['server/src/server.js'], {
-      env: { 
-        ...process.env, 
-        PORT: port, 
+      env: {
+        ...process.env,
+        PORT: port,
         NODE_ENV: 'test',
         SSE_TICK_INTERVAL: '500',
         SSE_HEARTBEAT_INTERVAL: '1000',
@@ -43,17 +43,19 @@ describe('Server Metrics Integration', () => {
    */
   async function fetchEndpoint(path) {
     return new Promise((resolve, reject) => {
-      http.get(`http://localhost:${port}${path}`, (res) => {
-        let data = '';
-        res.on('data', chunk => data += chunk);
-        res.on('end', () => {
-          if (res.headers['content-type']?.includes('application/json')) {
-            resolve(JSON.parse(data));
-          } else {
-            resolve(data);
-          }
-        });
-      }).on('error', reject);
+      http
+        .get(`http://localhost:${port}${path}`, (res) => {
+          let data = '';
+          res.on('data', (chunk) => (data += chunk));
+          res.on('end', () => {
+            if (res.headers['content-type']?.includes('application/json')) {
+              resolve(JSON.parse(data));
+            } else {
+              resolve(data);
+            }
+          });
+        })
+        .on('error', reject);
     });
   }
 
@@ -65,7 +67,7 @@ describe('Server Metrics Integration', () => {
       const req = http.get(`http://localhost:${port}/stream`, (res) => {
         res.on('data', () => {});
       });
-      
+
       setTimeout(() => {
         req.destroy();
         resolve();
@@ -86,8 +88,8 @@ describe('Server Metrics Integration', () => {
 
     // Verify format: each metric has HELP, TYPE, and value
     const lines = metrics.split('\n');
-    const helpLines = lines.filter(l => l.startsWith('# HELP'));
-    const typeLines = lines.filter(l => l.startsWith('# TYPE'));
+    const helpLines = lines.filter((l) => l.startsWith('# HELP'));
+    const typeLines = lines.filter((l) => l.startsWith('# TYPE'));
 
     expect(helpLines.length).toBeGreaterThan(0);
     expect(typeLines.length).toBeGreaterThan(0);
@@ -108,7 +110,7 @@ describe('Server Metrics Integration', () => {
       setTimeout(async () => {
         const during = await fetchEndpoint('/health');
         expect(during.metrics.gauges.active_streams).toBeGreaterThan(initialActive);
-        
+
         req.destroy();
         resolve();
       }, 500);
@@ -122,7 +124,7 @@ describe('Server Metrics Integration', () => {
     await openStream(500);
 
     // Small delay for cleanup
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 200));
 
     const after = await fetchEndpoint('/health');
     // Should be back to baseline (may be 0 or have other test connections)
@@ -144,16 +146,13 @@ describe('Server Metrics Integration', () => {
     await openStream(300);
 
     const metrics = await fetchEndpoint('/health');
-    
+
     // Should have some disconnects tracked
     const disconnects = metrics.metrics.counters.disconnects_total;
     expect(disconnects).toBeDefined();
-    
+
     // Client close is most common
-    expect(
-      disconnects['client_close'] >= 0 || 
-      disconnects['client_abort'] >= 0
-    ).toBe(true);
+    expect(disconnects['client_close'] >= 0 || disconnects['client_abort'] >= 0).toBe(true);
   });
 
   it('should increment rejected_connections_total when over limit (SSRK-162)', async () => {
@@ -170,22 +169,24 @@ describe('Server Metrics Integration', () => {
             res.on('end', resolve);
           });
           req.on('error', resolve);
-          
+
           setTimeout(() => {
             req.destroy();
             resolve();
           }, 1500);
         })
       );
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 50));
     }
 
     await Promise.all(connections);
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 200));
 
     const after = await fetchEndpoint('/health');
     // Should have rejected at least 2 (7 - 5 = 2)
-    expect(after.metrics.counters.rejected_connections_total).toBeGreaterThanOrEqual(initialRejected);
+    expect(after.metrics.counters.rejected_connections_total).toBeGreaterThanOrEqual(
+      initialRejected
+    );
   });
 
   it('should track heartbeats_sent_total (SSRK-163)', async () => {
@@ -224,7 +225,7 @@ describe('Server Metrics Integration', () => {
     const metrics = await fetchEndpoint('/metrics');
 
     expect(metrics).toContain('sse_server_uptime_seconds');
-    
+
     // Extract value
     const match = metrics.match(/sse_server_uptime_seconds (\d+)/);
     expect(match).not.toBeNull();
@@ -234,7 +235,7 @@ describe('Server Metrics Integration', () => {
   it('should format labeled metrics correctly', async () => {
     // Trigger a disconnect to get labeled metric
     await openStream(300);
-    await new Promise(r => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 100));
 
     const metrics = await fetchEndpoint('/metrics');
 

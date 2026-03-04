@@ -14,9 +14,9 @@ describe('Server Heartbeat Integration', () => {
   beforeAll(async () => {
     // Start server with short heartbeat interval for testing
     serverProcess = spawn('node', ['server/src/server.js'], {
-      env: { 
-        ...process.env, 
-        PORT: port, 
+      env: {
+        ...process.env,
+        PORT: port,
         NODE_ENV: 'test',
         SSE_HEARTBEAT_INTERVAL: '2000', // 2 second heartbeat for faster testing
         SSE_TICK_INTERVAL: '5000', // Slow ticks so heartbeats are visible
@@ -49,14 +49,14 @@ describe('Server Heartbeat Integration', () => {
         res.on('data', (chunk) => {
           const raw = chunk.toString();
           const blocks = raw.split('\n\n').filter(Boolean);
-          
+
           for (const block of blocks) {
             const parsed = parseSSEChunk(block + '\n\n');
             if (parsed.data) {
               const { envelope } = decodeSSE(parsed.data);
               if (envelope) {
                 events.push(envelope);
-                
+
                 if (envelope.type === 'system.heartbeat') {
                   heartbeatReceived = true;
                   req.destroy();
@@ -78,9 +78,9 @@ describe('Server Heartbeat Integration', () => {
     });
 
     expect(heartbeatReceived).toBe(true);
-    
+
     // Find the heartbeat event
-    const heartbeat = events.find(e => e.type === 'system.heartbeat');
+    const heartbeat = events.find((e) => e.type === 'system.heartbeat');
     expect(heartbeat).toBeDefined();
     expect(heartbeat.payload).toHaveProperty('server_time');
     expect(heartbeat.payload).toHaveProperty('interval_ms');
@@ -94,7 +94,7 @@ describe('Server Heartbeat Integration', () => {
         res.on('data', (chunk) => {
           const raw = chunk.toString();
           const blocks = raw.split('\n\n').filter(Boolean);
-          
+
           for (const block of blocks) {
             const parsed = parseSSEChunk(block + '\n\n');
             if (parsed.data) {
@@ -143,19 +143,21 @@ describe('Server Heartbeat Integration', () => {
   it('should report heartbeat metrics in /health (SSRK-118)', async () => {
     // First, make a connection to generate heartbeats
     const streamReq = http.get(`http://localhost:${port}/stream`);
-    
+
     // Wait for at least one heartbeat
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+
     streamReq.destroy();
 
     // Check health endpoint
     const health = await new Promise((resolve, reject) => {
-      http.get(`http://localhost:${port}/health`, (res) => {
-        let data = '';
-        res.on('data', chunk => data += chunk);
-        res.on('end', () => resolve(JSON.parse(data)));
-      }).on('error', reject);
+      http
+        .get(`http://localhost:${port}/health`, (res) => {
+          let data = '';
+          res.on('data', (chunk) => (data += chunk));
+          res.on('end', () => resolve(JSON.parse(data)));
+        })
+        .on('error', reject);
     });
 
     expect(health.metrics).toBeDefined();
@@ -164,11 +166,13 @@ describe('Server Heartbeat Integration', () => {
 
   it('should report heartbeat config in /info', async () => {
     const info = await new Promise((resolve, reject) => {
-      http.get(`http://localhost:${port}/info`, (res) => {
-        let data = '';
-        res.on('data', chunk => data += chunk);
-        res.on('end', () => resolve(JSON.parse(data)));
-      }).on('error', reject);
+      http
+        .get(`http://localhost:${port}/info`, (res) => {
+          let data = '';
+          res.on('data', (chunk) => (data += chunk));
+          res.on('end', () => resolve(JSON.parse(data)));
+        })
+        .on('error', reject);
     });
 
     expect(info.config.heartbeatInterval).toBe(2000);
@@ -182,7 +186,7 @@ describe('Server Heartbeat Integration', () => {
         res.on('data', (chunk) => {
           const raw = chunk.toString();
           const blocks = raw.split('\n\n').filter(Boolean);
-          
+
           for (const block of blocks) {
             const parsed = parseSSEChunk(block + '\n\n');
             if (parsed.data) {

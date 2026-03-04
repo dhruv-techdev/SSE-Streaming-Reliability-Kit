@@ -2,6 +2,7 @@
  * Scenario Runner (SSRK-191, SSRK-199, SSRK-201)
  * Executes fault injection scenarios with timeouts and fail-fast
  */
+import http from 'http';
 import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
 import { StepType } from './scenario.js';
@@ -22,10 +23,10 @@ export const ResultStatus = {
  * Default timeouts (SSRK-199, SSRK-201)
  */
 export const DEFAULT_TIMEOUTS = {
-  SCENARIO_TIMEOUT: 30000,      // Max time for entire scenario
-  STEP_TIMEOUT: 10000,          // Max time for single step
-  SERVER_START_TIMEOUT: 5000,   // Max time to start server
-  GLOBAL_TIMEOUT: 300000,       // Max time for all scenarios (5 min)
+  SCENARIO_TIMEOUT: 30000, // Max time for entire scenario
+  STEP_TIMEOUT: 10000, // Max time for single step
+  SERVER_START_TIMEOUT: 5000, // Max time to start server
+  GLOBAL_TIMEOUT: 300000, // Max time for all scenarios (5 min)
 };
 
 /**
@@ -34,14 +35,17 @@ export const DEFAULT_TIMEOUTS = {
 export class ScenarioRunner extends EventEmitter {
   constructor(options = {}) {
     super();
-    
+
     this.options = {
       serverPort: options.serverPort || 3099,
       serverStartTimeout: options.serverStartTimeout || DEFAULT_TIMEOUTS.SERVER_START_TIMEOUT,
       globalTimeout: options.globalTimeout || DEFAULT_TIMEOUTS.GLOBAL_TIMEOUT,
-      failFast: options.failFast || false,  // SSRK-199: Stop on first failure
+      failFast: options.failFast || false, // SSRK-199: Stop on first failure
       debug: options.debug || false,
     };
+
+    // Prevent uncaught 'error' event exceptions when no external listener is attached
+    this.on('error', () => {});
 
     this.serverProcess = null;
     this.connector = null;
@@ -53,7 +57,8 @@ export class ScenarioRunner extends EventEmitter {
     this.cannotResumePayload = null;
     this.livenessFailures = 0;
     this.assertions = null;
-    
+    this._preRestartReconnectCount = null;
+
     // Global timeout tracking (SSRK-199)
     this._globalStartTime = null;
     this._aborted = false;
@@ -116,10 +121,10 @@ export class ScenarioRunner extends EventEmitter {
    */
   async run(scenario) {
     const startTime = Date.now();
-    
+
     // Apply timeout (SSRK-199, SSRK-201)
     const timeout = scenario.timeout || DEFAULT_TIMEOUTS.SCENARIO_TIMEOUT;
-    
+
     const result = {
       name: scenario.name,
       status: ResultStatus.PASSED,
@@ -141,14 +146,10 @@ export class ScenarioRunner extends EventEmitter {
       });
 
       // Run scenario with timeout
-      await Promise.race([
-        this._executeScenario(scenario, result),
-        timeoutPromise,
-      ]);
+      await Promise.race([this._executeScenario(scenario, result), timeoutPromise]);
 
       // Validate expected outcomes
       this._validateExpected(scenario, result);
-
     } catch (err) {
       if (err.message.includes('timeout')) {
         result.status = ResultStatus.TIMEOUT;
@@ -162,7 +163,7 @@ export class ScenarioRunner extends EventEmitter {
     } finally {
       // Cleanup
       await this._cleanup();
-      
+
       result.duration = Date.now() - startTime;
       result.events = [...this.events];
       result.stats = this.connector?.getStats() || null;
@@ -184,7 +185,8 @@ export class ScenarioRunner extends EventEmitter {
     this.cannotResumeReceived = false;
     this.cannotResumePayload = null;
     this.livenessFailures = 0;
-    
+    this._preRestartReconnectCount = null;
+
     // Create assertions context
     this.assertions = createAssertions(this);
 
@@ -199,7 +201,7 @@ export class ScenarioRunner extends EventEmitter {
     for (let i = 0; i < scenario.steps.length; i++) {
       const step = scenario.steps[i];
       const stepTimeout = step.timeout || DEFAULT_TIMEOUTS.STEP_TIMEOUT;
-      
+
       const stepResult = {
         index: i,
         type: step.type,
@@ -218,9 +220,9 @@ export class ScenarioRunner extends EventEmitter {
             setTimeout(() => reject(new Error(`Step timeout after ${stepTimeout}ms`)), stepTimeout);
           }),
         ]);
-        
+
         stepResult.duration = Date.now() - stepStart;
-        
+
         if (this.options.debug) {
           console.log(`  ✓ Step ${i}: ${step.type} (${stepResult.duration}ms)`);
         }
@@ -230,14 +232,14 @@ export class ScenarioRunner extends EventEmitter {
         stepResult.duration = Date.now() - stepStart;
         result.status = ResultStatus.FAILED;
         result.message = `Step ${i} (${step.type}) failed: ${err.message}`;
-        
+
         if (this.options.debug) {
           console.log(`  ✗ Step ${i}: ${step.type} - ${err.message}`);
         }
       }
 
       result.steps.push(stepResult);
-      
+
       // Fail-fast on step failure (SSRK-199)
       if (stepResult.status === 'failed') {
         break;
@@ -292,6 +294,10 @@ export class ScenarioRunner extends EventEmitter {
 
       case StepType.RESTART_SERVER:
         await this._stepRestartServer(step, scenario);
+        break;
+
+      case StepType.STOP_SERVER:
+        await this._stepStopServer(step);
         break;
 
       case StepType.STOP_HEARTBEATS:
@@ -399,10 +405,7 @@ export class ScenarioRunner extends EventEmitter {
       },
     };
 
-    this.connector = connectSSE(
-      `http://localhost:${this.options.serverPort}/stream`,
-      clientConfig
-    );
+    this.connector = connectSSE(`http://localhost:${this.options.serverPort}/stream`, clientConfig);
   }
 
   async _stepDisconnect(step) {
@@ -431,7 +434,9 @@ export class ScenarioRunner extends EventEmitter {
 
     while (this.events.length - initialCount < count) {
       if (Date.now() - start > timeout) {
-        throw new Error(`Timeout waiting for ${count} events (got ${this.events.length - initialCount})`);
+        throw new Error(
+          `Timeout waiting for ${count} events (got ${this.events.length - initialCount})`
+        );
       }
       await this._sleep(100);
     }
@@ -442,8 +447,10 @@ export class ScenarioRunner extends EventEmitter {
     const timeout = step.timeout || 10000;
     const start = Date.now();
 
-    while (!this.events.some(e => e.type === eventType) && 
-           !this.controlEvents.some(e => e.type === eventType)) {
+    while (
+      !this.events.some((e) => e.type === eventType) &&
+      !this.controlEvents.some((e) => e.type === eventType)
+    ) {
       if (Date.now() - start > timeout) {
         throw new Error(`Timeout waiting for event type: ${eventType}`);
       }
@@ -452,23 +459,42 @@ export class ScenarioRunner extends EventEmitter {
   }
 
   async _stepDropConnection(step) {
-    if (this.serverProcess) {
-      this.serverProcess.kill('SIGTERM');
-      await this._sleep(100);
-      await this._startServer({ port: this.options.serverPort });
-    }
+    await this._serverPost('/debug/drop-connections');
+    await this._sleep(100);
+  }
+
+  async _stepStopServer(step) {
+    await this._stopServerProcess();
   }
 
   async _stepPauseEvents(step) {
-    if (this.serverProcess) {
-      this.serverProcess.kill('SIGSTOP');
-    }
+    await this._serverPost('/debug/pause-events');
   }
 
   async _stepResumeEvents(step) {
-    if (this.serverProcess) {
-      this.serverProcess.kill('SIGCONT');
-    }
+    await this._serverPost('/debug/resume-events');
+  }
+
+  /**
+   * HTTP POST to server debug endpoint
+   */
+  _serverPost(path) {
+    return new Promise((resolve, reject) => {
+      const req = http.request(
+        {
+          hostname: 'localhost',
+          port: this.options.serverPort,
+          path,
+          method: 'POST',
+        },
+        (res) => {
+          res.resume();
+          res.on('end', resolve);
+        }
+      );
+      req.on('error', reject);
+      req.end();
+    });
   }
 
   async _stepInjectDuplicate(step) {
@@ -481,11 +507,12 @@ export class ScenarioRunner extends EventEmitter {
   }
 
   async _stepRestartServer(step, scenario) {
-    if (this.serverProcess) {
-      this.serverProcess.kill('SIGTERM');
-      await this._sleep(500);
-    }
-    
+    // Capture count before restart so WAIT_RECONNECT waits for the
+    // server-restart-triggered reconnect, not a later liveness one.
+    this._preRestartReconnectCount = this.connector?.stats.reconnectCount ?? 0;
+
+    await this._stopServerProcess();
+
     await this._startServer({
       ...scenario.config.server,
       port: this.options.serverPort,
@@ -493,27 +520,11 @@ export class ScenarioRunner extends EventEmitter {
   }
 
   async _stepStopHeartbeats(step) {
-    if (this.serverProcess) {
-      this.serverProcess.kill('SIGTERM');
-      await this._sleep(200);
-    }
-    
-    await this._startServer({
-      port: this.options.serverPort,
-      heartbeatInterval: 999999,
-    });
+    await this._serverPost('/debug/stop-heartbeats');
   }
 
   async _stepResumeHeartbeats(step) {
-    if (this.serverProcess) {
-      this.serverProcess.kill('SIGTERM');
-      await this._sleep(200);
-    }
-    
-    await this._startServer({
-      port: this.options.serverPort,
-      heartbeatInterval: 1000,
-    });
+    await this._serverPost('/debug/resume-heartbeats');
   }
 
   async _stepWait(step) {
@@ -524,7 +535,11 @@ export class ScenarioRunner extends EventEmitter {
   async _stepWaitReconnect(step) {
     const timeout = step.timeout || 10000;
     const start = Date.now();
-    const initialCount = this.connector?.stats.reconnectCount || 0;
+    // Use the count captured at RESTART_SERVER time (if available) so we wait
+    // for the server-restart-triggered reconnect rather than a later one.
+    const initialCount =
+      this._preRestartReconnectCount ?? (this.connector?.stats.reconnectCount || 0);
+    this._preRestartReconnectCount = null;
 
     while ((this.connector?.stats.reconnectCount || 0) <= initialCount) {
       if (Date.now() - start > timeout) {
@@ -567,10 +582,10 @@ export class ScenarioRunner extends EventEmitter {
 
   async _stepAssertStats(step) {
     const stats = this.connector?.getStats();
-    
+
     for (const [key, expected] of Object.entries(step.stats)) {
       const actual = stats[key];
-      
+
       if (typeof expected === 'object') {
         if (expected.min !== undefined) {
           this.assertions.statMin(key, expected.min);
@@ -648,7 +663,7 @@ export class ScenarioRunner extends EventEmitter {
    */
   _validateExpected(scenario, result) {
     const expected = scenario.expected;
-    
+
     if (!expected || Object.keys(expected).length === 0) {
       return;
     }
@@ -700,7 +715,6 @@ export class ScenarioRunner extends EventEmitter {
       if (expected.resumeSucceeded) {
         this.assertions.resumeSucceeded();
       }
-
     } catch (err) {
       result.status = ResultStatus.FAILED;
       result.errors.push(err.message);
@@ -715,6 +729,7 @@ export class ScenarioRunner extends EventEmitter {
       ...process.env,
       PORT: config.port || this.options.serverPort,
       NODE_ENV: 'test',
+      SHUTDOWN_GRACE_PERIOD: String(config.shutdownGracePeriodMs || 50),
       SSE_TICK_INTERVAL: String(config.tickInterval || 200),
       SSE_HEARTBEAT_INTERVAL: String(config.heartbeatInterval || 1000),
       SSE_MAX_BUFFER_SIZE: String(config.maxBufferSize || 100),
@@ -727,21 +742,61 @@ export class ScenarioRunner extends EventEmitter {
     });
 
     await new Promise((resolve, reject) => {
+      const start = Date.now();
+      let settled = false;
+      let stderr = '';
+
+      const settle = (err) => {
+        if (settled) return;
+        settled = true;
+        clearInterval(checkReady);
+        clearTimeout(timeout);
+        this.serverProcess?.off('error', onError);
+        this.serverProcess?.off('exit', onExit);
+        this.serverProcess?.stderr?.off('data', onStderr);
+        if (err) reject(err);
+        else resolve();
+      };
+
+      const onError = (err) => settle(err);
+      const onExit = (code, signal) => {
+        settle(
+          new Error(
+            `Server exited before ready (code=${code ?? 'null'}, signal=${signal ?? 'null'})${
+              stderr ? `: ${stderr.trim()}` : ''
+            }`
+          )
+        );
+      };
+      const onStderr = (chunk) => {
+        stderr += chunk.toString();
+      };
+
+      const checkReady = setInterval(async () => {
+        try {
+          const ready = await this._isServerReady();
+          if (ready) settle();
+        } catch {
+          // Keep polling until timeout/ready.
+        }
+      }, 100);
+
       const timeout = setTimeout(() => {
-        reject(new Error('Server start timeout'));
+        settle(new Error('Server start timeout'));
       }, this.options.serverStartTimeout);
 
-      this.serverProcess.stdout.on('data', (data) => {
-        if (data.toString().includes('SSE Streaming')) {
-          clearTimeout(timeout);
-          resolve();
-        }
-      });
+      this.serverProcess.on('error', onError);
+      this.serverProcess.on('exit', onExit);
+      this.serverProcess.stderr?.on('data', onStderr);
 
-      this.serverProcess.on('error', (err) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
+      // Immediate probe to reduce startup latency.
+      this._isServerReady()
+        .then((ready) => {
+          if (ready && Date.now() - start <= this.options.serverStartTimeout) {
+            settle();
+          }
+        })
+        .catch(() => {});
     });
   }
 
@@ -754,19 +809,75 @@ export class ScenarioRunner extends EventEmitter {
       this.connector = null;
     }
 
-    if (this.serverProcess) {
-      this.serverProcess.kill('SIGTERM');
-      this.serverProcess = null;
-    }
+    await this._stopServerProcess();
+  }
 
-    await this._sleep(200);
+  /**
+   * Check whether server is accepting requests
+   */
+  _isServerReady() {
+    return new Promise((resolve) => {
+      const req = http.get(
+        {
+          hostname: 'localhost',
+          port: this.options.serverPort,
+          path: '/health',
+          timeout: 500,
+        },
+        (res) => {
+          res.resume();
+          resolve(res.statusCode >= 200 && res.statusCode < 500);
+        }
+      );
+
+      req.on('timeout', () => {
+        req.destroy();
+        resolve(false);
+      });
+
+      req.on('error', () => {
+        resolve(false);
+      });
+    });
+  }
+
+  /**
+   * Stop test server and wait for process exit
+   */
+  async _stopServerProcess() {
+    if (!this.serverProcess) return;
+
+    const proc = this.serverProcess;
+    this.serverProcess = null;
+
+    await new Promise((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(forceKillTimer);
+        clearTimeout(finalizeTimer);
+        resolve();
+      };
+
+      const forceKillTimer = setTimeout(() => {
+        if (!proc.killed) {
+          proc.kill('SIGKILL');
+        }
+      }, 2000);
+
+      const finalizeTimer = setTimeout(finish, 3000);
+
+      proc.once('exit', finish);
+      proc.kill('SIGTERM');
+    });
   }
 
   /**
    * Sleep helper
    */
   _sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
 

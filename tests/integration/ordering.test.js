@@ -11,9 +11,9 @@ describe('Ordering Integration', () => {
 
   beforeAll(async () => {
     serverProcess = spawn('node', ['server/src/server.js'], {
-      env: { 
-        ...process.env, 
-        PORT: port, 
+      env: {
+        ...process.env,
+        PORT: port,
         NODE_ENV: 'test',
         SSE_TICK_INTERVAL: '200',
         SSE_HEARTBEAT_INTERVAL: '60000',
@@ -43,7 +43,7 @@ describe('Ordering Integration', () => {
       enableLivenessCheck: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     expect(connector.options.enableOrdering).toBe(true);
     expect(connector.getOrderingGuard()).toBeDefined();
@@ -58,10 +58,10 @@ describe('Ordering Integration', () => {
       orderingRule: OrderingRule.SEQUENCE,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const guard = connector.getOrderingGuard();
-    
+
     // Should have processed events with sequences
     expect(guard.lastAcceptedSequence).toBeGreaterThan(0);
 
@@ -74,7 +74,7 @@ describe('Ordering Integration', () => {
       enableLivenessCheck: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     const stats = connector.getStats();
 
@@ -93,7 +93,7 @@ describe('Ordering Integration', () => {
       orderingRule: OrderingRule.EVENT_ID,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     expect(connector.getOrderingGuard().orderingRule).toBe(OrderingRule.EVENT_ID);
 
@@ -107,7 +107,7 @@ describe('Ordering Integration', () => {
       enableOrdering: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     expect(connector.options.enableOrdering).toBe(false);
 
@@ -126,11 +126,11 @@ describe('Ordering Integration', () => {
       },
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     // Manually test the ordering guard
     const guard = connector.getOrderingGuard();
-    
+
     // Simulate out-of-order by checking with lower sequence
     guard.check({ event_id: 'a', type: 'domain.test', ts: '', payload: {}, sequence: 1000 });
     guard.check({ event_id: 'b', type: 'domain.test', ts: '', payload: {}, sequence: 500 });
@@ -161,12 +161,12 @@ describe('Ordering Integration', () => {
       },
     });
 
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     // Some events should have been rejected by the hook
     // (depending on server's sequence generation)
     connector.stop();
-    
+
     // Hook was called and could reject
     expect(connector.getStats().ordering.totalChecked).toBeGreaterThan(0);
   });
@@ -177,13 +177,13 @@ describe('Ordering Integration', () => {
       enableLivenessCheck: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     const guard = connector.getOrderingGuard();
     expect(guard.lastAcceptedSequence).toBeGreaterThan(0);
 
     connector.resetOrderingMarkers();
-    
+
     expect(guard.lastAcceptedSequence).toBeNull();
 
     connector.stop();
@@ -195,7 +195,7 @@ describe('Ordering Integration', () => {
       enableLivenessCheck: false,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     // Manually trigger out-of-order
     const guard = connector.getOrderingGuard();
@@ -219,7 +219,7 @@ describe('Ordering Integration', () => {
       },
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     // Should have received control.open at minimum
     expect(controlEvents.length).toBeGreaterThan(0);
@@ -241,7 +241,7 @@ describe('Ordering Integration', () => {
       },
     });
 
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     connector.stop();
 

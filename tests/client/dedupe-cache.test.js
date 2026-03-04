@@ -78,7 +78,7 @@ describe('DedupeCache', () => {
       cache.isDuplicate({ event_id: 'a', type: 'test', ts: '', payload: {} });
       cache.isDuplicate({ event_id: 'b', type: 'test', ts: '', payload: {} });
       cache.isDuplicate({ event_id: 'c', type: 'test', ts: '', payload: {} });
-      
+
       expect(cache.size).toBe(3);
       expect(cache.has('a')).toBe(true);
 
@@ -178,9 +178,9 @@ describe('DedupeCache', () => {
       const cache = createDedupeCache({ maxSize: 100, ttlMs: 50 });
 
       cache.isDuplicate({ event_id: 'old', type: 'test', ts: '', payload: {} });
-      
+
       // Wait for TTL to expire
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       // Trigger cleanup with new check
       cache.isDuplicate({ event_id: 'new', type: 'test', ts: '', payload: {} });
@@ -284,7 +284,9 @@ describe('DedupeCache', () => {
       cache.add('manual-id');
 
       expect(cache.has('manual-id')).toBe(true);
-      expect(cache.isDuplicate({ event_id: 'manual-id', type: 'test', ts: '', payload: {} })).toBe(true);
+      expect(cache.isDuplicate({ event_id: 'manual-id', type: 'test', ts: '', payload: {} })).toBe(
+        true
+      );
     });
   });
 });

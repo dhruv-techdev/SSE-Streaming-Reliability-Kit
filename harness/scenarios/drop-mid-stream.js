@@ -9,7 +9,7 @@ export default defineScenario({
   description: 'Validates client reconnects and resumes after network drop',
   timeout: 30000,
   tags: ['reconnect', 'resume', 'network'],
-  
+
   config: {
     client: {
       autoReconnect: true,
@@ -30,25 +30,25 @@ export default defineScenario({
     { type: StepType.CONNECT },
     { type: StepType.WAIT_CONNECTED, timeout: 5000 },
     { type: StepType.WAIT_EVENTS, count: 3, timeout: 5000 },
-    
+
     // Force disconnect by restarting server
     { type: StepType.DROP_CONNECTION },
-    
+
     // Wait for client to reconnect
     { type: StepType.WAIT_RECONNECT, timeout: 10000 },
     { type: StepType.WAIT_CONNECTED, timeout: 5000 },
-    
+
     // Should receive more events after reconnect
     { type: StepType.WAIT_EVENTS, count: 3, timeout: 5000 },
-    
+
     // Verify state
     { type: StepType.ASSERT_STATE, state: 'open' },
-    { 
-      type: StepType.ASSERT_STATS, 
-      stats: { 
+    {
+      type: StepType.ASSERT_STATS,
+      stats: {
         reconnectCount: { min: 1 },
         eventsReceived: { min: 6 },
-      } 
+      },
     },
   ],
 

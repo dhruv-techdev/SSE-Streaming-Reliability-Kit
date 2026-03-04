@@ -50,7 +50,7 @@ describe('Retry Limits Integration', () => {
     });
 
     // Wait for retries to exhaust
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     expect(gaveUp).toBe(true);
     expect(giveUpInfo.reason).toBe(GiveUpReason.MAX_ATTEMPTS);
@@ -68,8 +68,8 @@ describe('Retry Limits Integration', () => {
     const connector = connectSSE(`http://localhost:${port + 888}/stream`, {
       retryPolicy: {
         baseDelayMs: 50,
-        maxAttempts: 100,      // High limit
-        maxRetryTimeMs: 200,   // But time cap at 200ms
+        maxAttempts: 100, // High limit
+        maxRetryTimeMs: 200, // But time cap at 200ms
         jitterPct: 0,
       },
       autoReconnect: true,
@@ -80,7 +80,7 @@ describe('Retry Limits Integration', () => {
     });
 
     // Wait for time limit
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     expect(gaveUp).toBe(true);
     expect(giveUpInfo.reason).toBe(GiveUpReason.MAX_TIME);
@@ -103,13 +103,13 @@ describe('Retry Limits Integration', () => {
       },
     });
 
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
     expect(connector.connected).toBe(true);
 
     connector.stop();
 
     // Wait and verify no retries
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     expect(retryCount).toBe(0);
     expect(connector.getState()).toBe(ConnectionState.CLOSED);
@@ -131,7 +131,7 @@ describe('Retry Limits Integration', () => {
     });
 
     // Wait for give up
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
     expect(gaveUp).toBe(true);
     expect(connector.hasGivenUp).toBe(true);
 
@@ -139,7 +139,7 @@ describe('Retry Limits Integration', () => {
     connector.url = new URL(`http://localhost:${port}/stream`);
     connector.restart();
 
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     expect(connector.hasGivenUp).toBe(false);
     expect(connector.connected).toBe(true);
@@ -156,7 +156,7 @@ describe('Retry Limits Integration', () => {
       autoReconnect: true,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     const stats = connector.getStats();
     expect(stats.retryAttempt).toBe(0); // Reset after success
@@ -180,7 +180,7 @@ describe('Retry Limits Integration', () => {
       },
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     // Should have some elapsed time
     expect(elapsedMs).toBeGreaterThan(0);

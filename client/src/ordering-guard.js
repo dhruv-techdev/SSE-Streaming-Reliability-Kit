@@ -11,15 +11,15 @@ export const OrderingRule = {
   // Order by sequence number (monotonically increasing)
   // Events with sequence <= last accepted are out-of-order
   SEQUENCE: 'sequence',
-  
+
   // Order by event_id (UUIDv7 is time-sortable)
   // Events with event_id < last accepted are out-of-order
   EVENT_ID: 'event_id',
-  
+
   // Order by timestamp (ts field)
   // Events with ts < last accepted are out-of-order
   TIMESTAMP: 'timestamp',
-  
+
   // No ordering enforcement (accept all)
   NONE: 'none',
 };
@@ -30,13 +30,13 @@ export const OrderingRule = {
 export const OutOfOrderPolicy = {
   // Drop out-of-order events silently
   DROP: 'drop',
-  
+
   // Drop and emit callback
   DROP_WITH_CALLBACK: 'drop_with_callback',
-  
+
   // Accept anyway (log only)
   ACCEPT: 'accept',
-  
+
   // Buffer for reordering (not implemented - complex)
   // BUFFER: 'buffer',
 };
@@ -52,24 +52,24 @@ export class OrderingGuard {
   constructor(options = {}) {
     // Ordering rule (SSRK-152)
     this.orderingRule = options.orderingRule || OrderingRule.SEQUENCE;
-    
+
     // Out-of-order policy (SSRK-154)
     this.outOfOrderPolicy = options.outOfOrderPolicy || OutOfOrderPolicy.DROP_WITH_CALLBACK;
-    
+
     // Callbacks (SSRK-154)
     this.onOutOfOrder = options.onOutOfOrder || null;
-    
+
     // Idempotency guardrail hook (SSRK-155)
     this.shouldProcess = options.shouldProcess || null;
-    
+
     // Debug
     this._debug = options.debug || false;
-    
+
     // Last accepted markers (SSRK-153)
     this._lastAcceptedSequence = null;
     this._lastAcceptedEventId = null;
     this._lastAcceptedTimestamp = null;
-    
+
     // Stats
     this._stats = {
       totalChecked: 0,
@@ -81,7 +81,7 @@ export class OrderingGuard {
 
   /**
    * Check if event should be processed (SSRK-153, SSRK-154, SSRK-155, SSRK-156)
-   * 
+   *
    * @param {Object} envelope - Event envelope
    * @returns {{ accept: boolean, reason?: string }}
    */
@@ -111,14 +111,14 @@ export class OrderingGuard {
         lastAcceptedEventId: this._lastAcceptedEventId,
         lastAcceptedTimestamp: this._lastAcceptedTimestamp,
       };
-      
+
       const hookResult = this.shouldProcess(envelope, context);
-      
+
       if (hookResult === false) {
         this._stats.totalDropped++;
         return { accept: false, reason: 'rejected_by_hook' };
       }
-      
+
       // If hook returns true or undefined, continue with normal checks
     }
 
@@ -131,7 +131,7 @@ export class OrderingGuard {
 
     // Check ordering based on rule (SSRK-152)
     const orderCheck = this._checkOrdering(envelope);
-    
+
     if (!orderCheck.inOrder) {
       return this._handleOutOfOrder(envelope, orderCheck.reason);
     }
@@ -139,7 +139,7 @@ export class OrderingGuard {
     // In order - update markers and accept
     this._updateMarkers(envelope);
     this._stats.totalAccepted++;
-    
+
     return { accept: true };
   }
 
@@ -164,13 +164,13 @@ export class OrderingGuard {
     switch (this.orderingRule) {
       case OrderingRule.SEQUENCE:
         return this._checkSequenceOrdering(envelope);
-      
+
       case OrderingRule.EVENT_ID:
         return this._checkEventIdOrdering(envelope);
-      
+
       case OrderingRule.TIMESTAMP:
         return this._checkTimestampOrdering(envelope);
-      
+
       default:
         return { inOrder: true };
     }
@@ -182,7 +182,7 @@ export class OrderingGuard {
    */
   _checkSequenceOrdering(envelope) {
     const sequence = envelope.sequence;
-    
+
     // No sequence - can't enforce ordering
     if (sequence === undefined || sequence === null) {
       return { inOrder: true, reason: 'no_sequence' };
@@ -212,7 +212,7 @@ export class OrderingGuard {
    */
   _checkEventIdOrdering(envelope) {
     const eventId = envelope.event_id;
-    
+
     if (!eventId) {
       return { inOrder: true, reason: 'no_event_id' };
     }
@@ -239,7 +239,7 @@ export class OrderingGuard {
    */
   _checkTimestampOrdering(envelope) {
     const ts = envelope.ts;
-    
+
     if (!ts) {
       return { inOrder: true, reason: 'no_timestamp' };
     }
@@ -268,7 +268,7 @@ export class OrderingGuard {
    */
   _handleOutOfOrder(envelope, reason) {
     this._stats.totalDropped++;
-    
+
     // Track by type
     const type = envelope.type || 'unknown';
     this._stats.outOfOrderByType[type] = (this._stats.outOfOrderByType[type] || 0) + 1;
@@ -308,11 +308,11 @@ export class OrderingGuard {
     if (envelope.sequence !== undefined && envelope.sequence !== null) {
       this._lastAcceptedSequence = envelope.sequence;
     }
-    
+
     if (envelope.event_id) {
       this._lastAcceptedEventId = envelope.event_id;
     }
-    
+
     if (envelope.ts !== undefined && envelope.ts !== null) {
       this._lastAcceptedTimestamp = envelope.ts;
     }
@@ -325,7 +325,7 @@ export class OrderingGuard {
     this._lastAcceptedSequence = null;
     this._lastAcceptedEventId = null;
     this._lastAcceptedTimestamp = null;
-    
+
     if (this._debug) {
       console.log(`[ORDERING] Markers reset`);
     }

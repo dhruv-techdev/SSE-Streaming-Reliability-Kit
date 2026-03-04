@@ -22,7 +22,7 @@ data: {"event_id":"test-123","type":"domain.user.created","ts":"2026-01-01T00:00
 
 `;
       const parsed = parseSSEChunk(raw);
-      
+
       expect(parsed.id).toBe('test-123');
       expect(parsed.event).toBe('domain.user.created');
       expect(parsed.data).toContain('event_id');
@@ -36,7 +36,7 @@ data: {"event_id":"test-123","type":"control.open","ts":"2026-01-01T00:00:00Z","
 
 `;
       const parsed = parseSSEChunk(raw);
-      
+
       expect(parsed.retry).toBe(5000);
     });
 
@@ -45,7 +45,7 @@ data: {"event_id":"test-123","type":"control.open","ts":"2026-01-01T00:00:00Z","
 
 `;
       const parsed = parseSSEChunk(raw);
-      
+
       expect(parsed.id).toBeNull();
       expect(parsed.event).toBeNull();
       expect(parsed.data).toBe('{"test":true}');
@@ -57,7 +57,7 @@ data: {"test":true}
 
 `;
       const parsed = parseSSEChunk(raw);
-      
+
       expect(parsed.data).toBe('{"test":true}');
     });
   });
@@ -66,16 +66,16 @@ data: {"test":true}
     it('should decode valid JSON envelope', () => {
       const envelope = createEnvelope('domain.test', { foo: 'bar' });
       const json = JSON.stringify(envelope);
-      
+
       const result = decodeSSE(json);
-      
+
       expect(result.error).toBeNull();
       expect(result.envelope).toEqual(envelope);
     });
 
     it('should fail on invalid JSON', () => {
       const result = decodeSSE('not valid json {{{');
-      
+
       expect(result.error).not.toBeNull();
       expect(result.envelope).toBeNull();
       expect(result.error).toContain('Parse error');
@@ -83,7 +83,7 @@ data: {"test":true}
 
     it('should fail on missing required fields', () => {
       const result = decodeSSE('{"foo":"bar"}');
-      
+
       expect(result.error).not.toBeNull();
       expect(result.envelope).toBeNull();
       expect(result.error).toContain('Invalid envelope');
@@ -94,7 +94,7 @@ data: {"test":true}
     it('should validate correct envelope', () => {
       const envelope = createEnvelope('domain.test', { data: 123 });
       const result = validateEvent(envelope);
-      
+
       expect(result.valid).toBe(true);
       expect(result.errors).toBeNull();
     });
@@ -106,7 +106,7 @@ data: {"test":true}
         payload: {},
       };
       const result = validateEvent(envelope);
-      
+
       expect(result.valid).toBe(false);
       expect(result.errors).not.toBeNull();
     });
@@ -118,7 +118,7 @@ data: {"test":true}
         payload: {},
       };
       const result = validateEvent(envelope);
-      
+
       expect(result.valid).toBe(false);
     });
 
@@ -129,7 +129,7 @@ data: {"test":true}
         payload: {},
       };
       const result = validateEvent(envelope);
-      
+
       expect(result.valid).toBe(false);
     });
 
@@ -140,7 +140,7 @@ data: {"test":true}
         ts: new Date().toISOString(),
       };
       const result = validateEvent(envelope);
-      
+
       expect(result.valid).toBe(false);
     });
 
@@ -152,7 +152,7 @@ data: {"test":true}
         payload: {},
       };
       const result = validateEvent(envelope);
-      
+
       expect(result.valid).toBe(false);
     });
 
@@ -164,7 +164,7 @@ data: {"test":true}
         payload: {},
       };
       const result = validateEvent(envelope);
-      
+
       expect(result.valid).toBe(false);
     });
   });
@@ -175,7 +175,7 @@ data: {"test":true}
         timeout: 10000,
         maxRetries: 5,
       });
-      
+
       expect(connector.url.href).toBe('http://localhost:3000/stream');
       expect(connector.options.timeout).toBe(10000);
       expect(connector._reconnectManager.policy.config.maxAttempts).toBe(5);
@@ -183,7 +183,7 @@ data: {"test":true}
 
     it('should have default options', () => {
       const connector = new SSEConnector('http://localhost:3000/stream');
-      
+
       expect(connector.options.autoReconnect).toBe(true);
       expect(connector.options.validateEnvelope).toBe(true);
       expect(typeof connector.options.onOpen).toBe('function');
@@ -194,7 +194,7 @@ data: {"test":true}
 
     it('should start in CLOSED state', () => {
       const connector = new SSEConnector('http://localhost:3000/stream');
-      
+
       expect(connector.getState()).toBe('idle');
       expect(connector.connected).toBe(false);
     });
@@ -202,7 +202,7 @@ data: {"test":true}
     it('should track statistics', () => {
       const connector = new SSEConnector('http://localhost:3000/stream');
       const stats = connector.getStats();
-      
+
       expect(stats).toHaveProperty('eventsReceived');
       expect(stats).toHaveProperty('bytesReceived');
       expect(stats).toHaveProperty('connectedAt');
@@ -218,7 +218,7 @@ data: {"test":true}
 
     it('should identify control events by prefix', () => {
       const types = ['control.open', 'control.close', 'control.reconnect'];
-      
+
       for (const type of types) {
         expect(type.startsWith('control.')).toBe(true);
       }
@@ -226,7 +226,7 @@ data: {"test":true}
 
     it('should identify domain events by prefix', () => {
       const types = ['domain.user.created', 'domain.order.updated'];
-      
+
       for (const type of types) {
         expect(type.startsWith('domain.')).toBe(true);
       }

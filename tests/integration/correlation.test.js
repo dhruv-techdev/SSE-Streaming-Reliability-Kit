@@ -12,9 +12,9 @@ describe('Correlation ID Integration', () => {
 
   beforeAll(async () => {
     serverProcess = spawn('node', ['server/src/server.js'], {
-      env: { 
-        ...process.env, 
-        PORT: port, 
+      env: {
+        ...process.env,
+        PORT: port,
         NODE_ENV: 'test',
         SSE_TICK_INTERVAL: '200',
         SSE_HEARTBEAT_INTERVAL: '60000',
@@ -40,7 +40,7 @@ describe('Correlation ID Integration', () => {
 
   it('should receive stream_id in control.open (SSRK-186, SSRK-188)', async () => {
     let streamIdFromOpen = null;
-    let controlEvents = [];
+    const controlEvents = [];
 
     const connector = connectSSE(`http://localhost:${port}/stream`, {
       autoReconnect: false,
@@ -53,7 +53,7 @@ describe('Correlation ID Integration', () => {
       },
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     // Should have received control.open with stream_id
     expect(streamIdFromOpen).toBeDefined();
@@ -76,7 +76,7 @@ describe('Correlation ID Integration', () => {
       },
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     // All domain events should have stream_id
     expect(events.length).toBeGreaterThan(0);
@@ -103,7 +103,7 @@ describe('Correlation ID Integration', () => {
       },
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     // Server should echo back the trace_id
     expect(receivedTraceId).toBe(traceId);
@@ -124,7 +124,7 @@ describe('Correlation ID Integration', () => {
       },
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     // Events should include trace_id
     expect(events.length).toBeGreaterThan(0);
@@ -144,12 +144,16 @@ describe('Correlation ID Integration', () => {
       traceId,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     const stats = connector.getStats();
+    const serverStreamId =
+      typeof stats.serverStreamId === 'string'
+        ? stats.serverStreamId
+        : stats.serverStreamId?.stream_id;
 
-    expect(stats.serverStreamId).toBeDefined();
-    expect(stats.serverStreamId).toMatch(/^stream-/);
+    expect(serverStreamId).toBeDefined();
+    expect(serverStreamId).toMatch(/^stream-/);
     expect(stats.traceId).toBe(traceId);
 
     connector.stop();
@@ -167,7 +171,7 @@ describe('Correlation ID Integration', () => {
       },
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     // Should still work, events have stream_id but not trace_id
     expect(events.length).toBeGreaterThan(0);
@@ -190,7 +194,7 @@ describe('Correlation ID Integration', () => {
       },
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     expect(firstStreamId).toBeDefined();
 

@@ -9,7 +9,7 @@ describe('Reporter (SSRK-206)', () => {
   describe('Console format', () => {
     it('should format passed scenario', () => {
       const reporter = createReporter({ colors: false });
-      
+
       const result = {
         name: 'test-scenario',
         status: ResultStatus.PASSED,
@@ -40,7 +40,7 @@ describe('Reporter (SSRK-206)', () => {
 
     it('should format failed scenario with errors', () => {
       const reporter = createReporter({ colors: false });
-      
+
       const result = {
         name: 'failing-scenario',
         status: ResultStatus.FAILED,
@@ -66,7 +66,7 @@ describe('Reporter (SSRK-206)', () => {
   describe('JSON format', () => {
     it('should output valid JSON', () => {
       const reporter = createReporter({ format: ReportFormat.JSON });
-      
+
       const result = {
         name: 'json-test',
         status: ResultStatus.PASSED,
@@ -90,7 +90,7 @@ describe('Reporter (SSRK-206)', () => {
   describe('Summary', () => {
     it('should summarize multiple results', () => {
       const reporter = createReporter({ colors: false });
-      
+
       const results = [
         { name: 'test1', status: ResultStatus.PASSED, duration: 1000, message: '' },
         { name: 'test2', status: ResultStatus.PASSED, duration: 500, message: '' },
@@ -107,7 +107,7 @@ describe('Reporter (SSRK-206)', () => {
 
     it('should show all passed when no failures', () => {
       const reporter = createReporter({ colors: false });
-      
+
       const results = [
         { name: 'test1', status: ResultStatus.PASSED, duration: 1000 },
         { name: 'test2', status: ResultStatus.PASSED, duration: 500 },
@@ -122,10 +122,16 @@ describe('Reporter (SSRK-206)', () => {
   describe('JUnit format', () => {
     it('should output valid JUnit XML', () => {
       const reporter = createReporter();
-      
+
       const results = [
         { name: 'passing', status: ResultStatus.PASSED, duration: 1000 },
-        { name: 'failing', status: ResultStatus.FAILED, duration: 500, message: 'Error', errors: ['Details'] },
+        {
+          name: 'failing',
+          status: ResultStatus.FAILED,
+          duration: 500,
+          message: 'Error',
+          errors: ['Details'],
+        },
       ];
 
       const xml = reporter.reportJUnit(results);

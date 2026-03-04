@@ -1,7 +1,7 @@
 // Types and constants
-export { 
-  ReservedEventTypes, 
-  RESERVED_PREFIXES, 
+export {
+  ReservedEventTypes,
+  RESERVED_PREFIXES,
   isDomainEventType,
   isHeartbeatEvent,
   HeartbeatPayloadSchema,
@@ -37,13 +37,7 @@ export {
 } from './envelope.js';
 
 // Structured logging
-export {
-  Logger,
-  createLogger,
-  LogLevel,
-  LogComponent,
-  LogEvent,
-} from './logger.js';
+export { Logger, createLogger, LogLevel, LogComponent, LogEvent } from './logger.js';
 
 // Correlation IDs (SSRK-183)
 export {

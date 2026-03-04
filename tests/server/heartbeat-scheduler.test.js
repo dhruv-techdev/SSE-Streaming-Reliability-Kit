@@ -2,7 +2,10 @@
  * Heartbeat Scheduler Tests (SSRK-115, SSRK-116)
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { HeartbeatScheduler, createHeartbeatScheduler } from '../../server/src/heartbeat-scheduler.js';
+import {
+  HeartbeatScheduler,
+  createHeartbeatScheduler,
+} from '../../server/src/heartbeat-scheduler.js';
 
 describe('HeartbeatScheduler', () => {
   let scheduler;
@@ -10,7 +13,7 @@ describe('HeartbeatScheduler', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
-    
+
     mockWriter = {
       sendEvent: vi.fn().mockReturnValue(true),
       connected: true,
@@ -143,7 +146,7 @@ describe('HeartbeatScheduler', () => {
   describe('Safe Write / Error Handling (SSRK-116)', () => {
     it('should stop on write failure', () => {
       mockWriter.sendEvent.mockReturnValue(false);
-      
+
       const onError = vi.fn();
       scheduler = createHeartbeatScheduler({
         intervalMs: 1000,
@@ -183,7 +186,7 @@ describe('HeartbeatScheduler', () => {
 
     it('should track failed count', () => {
       mockWriter.sendEvent.mockReturnValue(false);
-      
+
       scheduler = createHeartbeatScheduler({
         intervalMs: 1000,
         writer: mockWriter,
@@ -226,7 +229,7 @@ describe('HeartbeatScheduler', () => {
       });
 
       scheduler.start();
-      
+
       vi.advanceTimersByTime(3000);
 
       const stats = scheduler.getStats();
@@ -256,7 +259,7 @@ describe('HeartbeatScheduler', () => {
       scheduler.start();
 
       const stats = scheduler.getStats();
-      
+
       expect(stats).toEqual({
         connectionId: 'stats-test',
         intervalMs: 5000,

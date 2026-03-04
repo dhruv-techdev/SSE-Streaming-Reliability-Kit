@@ -2,7 +2,13 @@
  * SSE Client Demo (US-17)
  * Shows ordering enforcement
  */
-import { connectSSE, ConnectionState, CannotResumeFallback, OrderingRule, OutOfOrderPolicy } from './sse-connector.js';
+import {
+  connectSSE,
+  ConnectionState,
+  CannotResumeFallback,
+  OrderingRule,
+  OutOfOrderPolicy,
+} from './sse-connector.js';
 
 const host = process.env.HOST || 'localhost';
 const port = process.env.PORT || 3000;
@@ -36,7 +42,7 @@ function log(tag, message, data = null) {
 
 const connector = connectSSE(url, {
   debug,
-  
+
   retryPolicy: {
     baseDelayMs: 1000,
     maxDelayMs: 10000,
@@ -44,28 +50,28 @@ const connector = connectSSE(url, {
     maxRetryTimeMs: 60000,
     jitterPct: 0.2,
   },
-  
+
   // Liveness detection
   enableLivenessCheck: true,
   livenessTimeoutMs: 45000,
   livenessGracePeriodMs: 5000,
-  
+
   // Last-Event-ID persistence
   persistLastEventId: false,
   streamId: 'demo-stream',
-  
+
   // Cannot-resume fallback behavior
   cannotResumeFallback: CannotResumeFallback.START_FRESH,
-  
+
   // Dedupe configuration
   enableDedupe: true,
   dedupeMaxSize: 1000,
-  
+
   // Ordering configuration (SSRK-152)
   enableOrdering: true,
   orderingRule: OrderingRule.SEQUENCE,
   outOfOrderPolicy: OutOfOrderPolicy.DROP_WITH_CALLBACK,
-  
+
   onStateChange: ({ previous, current, reason }) => {
     stats.stateChanges.push({ from: previous, to: current, reason });
     log('STATE', `${previous} → ${current}`, { reason });
@@ -89,7 +95,7 @@ const connector = connectSSE(url, {
 
   onResumeAttempt: ({ lastEventId, attempt, reconnectCount }) => {
     stats.resumeAttempts++;
-    log('RESUME', `��� Attempting resume`, {
+    log('RESUME', `��� Attempting resume`, {
       lastEventId: lastEventId.slice(0, 20) + '...',
     });
   },
@@ -101,7 +107,7 @@ const connector = connectSSE(url, {
 
   onDuplicate: ({ event_id, type, totalDuplicates }) => {
     stats.duplicatesIgnored++;
-    log('DUPLICATE', `��� Ignored duplicate`, { event_id: event_id.slice(0, 12) + '...' });
+    log('DUPLICATE', `��� Ignored duplicate`, { event_id: event_id.slice(0, 12) + '...' });
   },
 
   // Out-of-order callback (SSRK-154)
@@ -116,8 +122,8 @@ const connector = connectSSE(url, {
   },
 
   onOpen: ({ url, lastEventId, state, reconnectCount }) => {
-    log('OPEN', `Connected to ${url}`, { 
-      state, 
+    log('OPEN', `Connected to ${url}`, {
+      state,
       resumeFrom: lastEventId ? lastEventId.slice(0, 20) + '...' : 'none',
       reconnectCount,
     });
@@ -198,12 +204,12 @@ function printSummary() {
 ║    Cache Size:      ${String(connectorStats.dedupe.size).padEnd(36)}║
 ╠═══════════════════════════════════════════════════════════╣
 ║  STATE HISTORY:                                            ║`);
-  
+
   stats.stateChanges.slice(-5).forEach(({ from, to, reason }) => {
     const line = `║    ${from} → ${to} (${reason})`;
     console.log(line.padEnd(60) + '║');
   });
-  
+
   console.log(`╠═══════════════════════════════════════════════════════════╣
 ║  RESULT: ${stats.eventsReceived > 0 ? 'PASS ✓                                          ' : 'FAIL ✗                                          '}║
 ╚═══════════════════════════════════════════════════════════╝

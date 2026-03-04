@@ -17,19 +17,20 @@ export const config = {
   sse: {
     // Tick interval for demo events (ms)
     tickInterval: parseInt(process.env.SSE_TICK_INTERVAL, 10) || 2000,
-    
+
     // Heartbeat interval - keep connection alive
-    heartbeatInterval: parseInt(process.env.SSE_HEARTBEAT_INTERVAL, 10) || Defaults.HEARTBEAT_INTERVAL_MS,
-    
+    heartbeatInterval:
+      parseInt(process.env.SSE_HEARTBEAT_INTERVAL, 10) || Defaults.HEARTBEAT_INTERVAL_MS,
+
     // Client retry timeout suggestion (ms)
     retryTimeout: parseInt(process.env.SSE_RETRY_TIMEOUT, 10) || Defaults.RETRY_INTERVAL_MS,
-    
+
     // Maximum events to buffer for replay (SSRK-135)
     maxBufferSize: parseInt(process.env.SSE_MAX_BUFFER_SIZE, 10) || Defaults.MAX_REPLAY_EVENTS,
-    
+
     // Maximum events to replay in one batch (SSRK-138)
     maxReplayBatch: parseInt(process.env.SSE_MAX_REPLAY_BATCH, 10) || 100,
-    
+
     // Buffer TTL in ms (0 = no expiry)
     bufferTtlMs: parseInt(process.env.SSE_BUFFER_TTL_MS, 10) || 0,
   },

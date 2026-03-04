@@ -1,12 +1,12 @@
 /**
  * SSE Event Envelope Schema
- * 
+ *
  * REQUIRED FIELDS:
  * - event_id: Unique identifier for the event (UUIDv7 format)
  * - type: Event type (string, lowercase, dot-notation for domain events)
  * - ts: ISO 8601 timestamp when event was created
  * - payload: Event data (object, can be empty {})
- * 
+ *
  * OPTIONAL FIELDS:
  * - stream_id: Identifies the stream/channel
  * - correlation_id: Links related events together
@@ -29,11 +29,11 @@ export const RESERVED_PREFIXES = ['system.', 'control.'];
 
 /**
  * Heartbeat event payload schema (SSRK-113)
- * 
+ *
  * The heartbeat event is used to:
  * 1. Keep connections alive through proxies/load balancers
  * 2. Allow clients to detect connection liveness
- * 
+ *
  * Payload fields (all optional):
  * - server_time: Server timestamp for clock sync
  * - interval_ms: Current heartbeat interval (informational)
@@ -51,7 +51,7 @@ export const HeartbeatPayloadSchema = {
  * Example: domain.user.created, domain.order.updated
  */
 export function isDomainEventType(type) {
-  return !RESERVED_PREFIXES.some(prefix => type.startsWith(prefix));
+  return !RESERVED_PREFIXES.some((prefix) => type.startsWith(prefix));
 }
 
 /**

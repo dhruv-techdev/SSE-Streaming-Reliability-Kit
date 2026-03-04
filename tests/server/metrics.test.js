@@ -66,7 +66,7 @@ describe('MetricsRegistry', () => {
 
     it('should handle new reason labels', () => {
       metrics.incDisconnects('new_reason');
-      
+
       const json = metrics.toJSON();
       expect(json.counters.disconnects_total['new_reason']).toBe(1);
     });

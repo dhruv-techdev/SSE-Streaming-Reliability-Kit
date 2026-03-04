@@ -9,7 +9,7 @@ export default defineScenario({
   description: 'Validates client detects liveness failure when heartbeats stop',
   timeout: 30000,
   tags: ['liveness', 'heartbeat', 'timeout'],
-  
+
   config: {
     client: {
       autoReconnect: true,
@@ -32,21 +32,24 @@ export default defineScenario({
     { type: StepType.CONNECT },
     { type: StepType.WAIT_CONNECTED, timeout: 5000 },
     { type: StepType.WAIT_EVENTS, count: 2, timeout: 5000 },
-    
-    // Stop heartbeats (restart server with very long heartbeat interval)
+
+    // Wait for at least one heartbeat so liveness monitor is primed
+    { type: StepType.WAIT, ms: 1500 },
+
+    // Stop heartbeats via server API (server stays running)
     { type: StepType.STOP_HEARTBEATS },
-    
+
     // Wait for liveness failure to be detected
     { type: StepType.WAIT_LIVENESS_FAILURE, timeout: 10000 },
-    
+
     // Client should reconnect
     { type: StepType.WAIT_RECONNECT, timeout: 10000 },
-    
+
     // Resume heartbeats and verify recovery
     { type: StepType.RESUME_HEARTBEATS },
     { type: StepType.WAIT_CONNECTED, timeout: 5000 },
-    { type: StepType.WAIT_EVENTS, count: 2, timeout: 5000 },
-    
+    { type: StepType.WAIT_EVENT_TYPE, eventType: 'control.replay_start', timeout: 5000 },
+
     // Verify final state
     { type: StepType.ASSERT_STATE, state: 'open' },
   ],

@@ -46,10 +46,10 @@ describe('Correlation IDs (SSRK-183)', () => {
     it('should validate common trace ID formats', () => {
       // W3C trace-id (32 hex)
       expect(isValidTraceId('0af7651916cd43dd8448eb211c80319c')).toBe(true);
-      
+
       // UUID format
       expect(isValidTraceId('550e8400-e29b-41d4-a716-446655440000')).toBe(true);
-      
+
       // Custom alphanumeric
       expect(isValidTraceId('trace-abc123')).toBe(true);
     });
@@ -83,7 +83,7 @@ describe('Correlation IDs (SSRK-183)', () => {
 
     it('should extract from W3C traceparent header', () => {
       const request = {
-        headers: { 'traceparent': '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01' },
+        headers: { traceparent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01' },
         query: {},
       };
 

@@ -1,16 +1,16 @@
 /**
  * Event ID Generation Rules (SSRK-54)
- * 
+ *
  * FORMAT: UUIDv7 (time-ordered UUID)
  * - Lexicographically sortable by creation time
  * - Unique across distributed systems
  * - Safe across server restarts
- * 
+ *
  * PROPERTIES:
  * - Monotonic within same millisecond (uses random bits)
  * - Comparable: eventId1 < eventId2 means event1 was created before event2
  * - 128-bit: xxxxxxxx-xxxx-7xxx-yxxx-xxxxxxxxxxxx
- * 
+ *
  * STRATEGY: UUIDv7 chosen because:
  * - Time-ordered (first 48 bits are Unix timestamp in ms)
  * - Database-friendly (sortable, indexable)
@@ -25,16 +25,20 @@
  */
 export function generateEventId() {
   const now = Date.now();
-  
+
   // Get 48-bit timestamp
   const timestamp = now.toString(16).padStart(12, '0');
-  
+
   // Generate random bits for the rest
   const randomBits = new Array(4)
     .fill(0)
-    .map(() => Math.floor(Math.random() * 0x10000).toString(16).padStart(4, '0'))
+    .map(() =>
+      Math.floor(Math.random() * 0x10000)
+        .toString(16)
+        .padStart(4, '0')
+    )
     .join('');
-  
+
   // Construct UUIDv7
   // Format: tttttttt-tttt-7xxx-yxxx-xxxxxxxxxxxx
   // t = timestamp, 7 = version, y = variant (8,9,a,b), x = random
@@ -45,7 +49,7 @@ export function generateEventId() {
     ((parseInt(randomBits.slice(3, 4), 16) & 0x3) | 0x8).toString(16) + randomBits.slice(4, 7),
     randomBits.slice(7, 19).padEnd(12, '0').slice(0, 12),
   ].join('-');
-  
+
   return uuid;
 }
 

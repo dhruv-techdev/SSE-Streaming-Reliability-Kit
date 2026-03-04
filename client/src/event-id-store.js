@@ -48,7 +48,7 @@ export class FileStorage {
 
   _ensureLoaded() {
     if (this._loaded) return;
-    
+
     try {
       // Dynamic import for Node.js fs
       const fs = require('fs');
@@ -146,24 +146,24 @@ export class EventIdStore {
   constructor(options = {}) {
     // Stream identifier for storage key
     this.streamId = options.streamId || 'default';
-    
+
     // Storage adapter (SSRK-129)
     this._storage = options.storage || new MemoryStorage();
-    
+
     // Storage key
     this._storageKey = options.storageKey || `lastEventId_${this.streamId}`;
-    
+
     // In-memory cache
     this._lastEventId = null;
-    
+
     // Whether to persist (SSRK-129)
     this._persist = options.persist !== false;
-    
+
     // Load from storage if persisting
     if (this._persist) {
       this._loadFromStorage();
     }
-    
+
     // Debug
     this._debug = options.debug || false;
   }
@@ -186,9 +186,9 @@ export class EventIdStore {
    */
   _saveToStorage() {
     if (!this._persist || !this._lastEventId) return;
-    
+
     this._storage.set(this._storageKey, this._lastEventId);
-    
+
     if (this._debug) {
       console.log(`[EVENT-ID-STORE] Saved to storage: ${this._lastEventId}`);
     }
@@ -202,19 +202,19 @@ export class EventIdStore {
    */
   updateFromEvent(envelope) {
     if (!envelope || !envelope.event_id) return false;
-    
+
     // Skip heartbeat events - don't update resume pointer for them (SSRK-128)
     if (envelope.type === 'system.heartbeat') {
       return false;
     }
-    
+
     this._lastEventId = envelope.event_id;
     this._saveToStorage();
-    
+
     if (this._debug) {
       console.log(`[EVENT-ID-STORE] Updated: ${this._lastEventId} (type: ${envelope.type})`);
     }
-    
+
     return true;
   }
 
@@ -241,7 +241,7 @@ export class EventIdStore {
   clear() {
     this._lastEventId = null;
     this._storage.remove(this._storageKey);
-    
+
     if (this._debug) {
       console.log(`[EVENT-ID-STORE] Cleared`);
     }

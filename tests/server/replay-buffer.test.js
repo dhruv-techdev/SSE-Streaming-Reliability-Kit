@@ -48,7 +48,7 @@ describe('ReplayBuffer', () => {
       buffer.add({ event_id: 'evt-1', type: 'a', ts: '', payload: {} });
       buffer.add({ event_id: 'evt-2', type: 'b', ts: '', payload: {} });
       buffer.add({ event_id: 'evt-3', type: 'c', ts: '', payload: {} });
-      
+
       expect(buffer.size).toBe(3);
       expect(buffer.has('evt-1')).toBe(true);
 
@@ -248,10 +248,10 @@ describe('ReplayBuffer', () => {
       });
 
       buffer.add({ event_id: 'old', type: 'a', ts: '', payload: {} });
-      
+
       // Wait for TTL to expire
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
       buffer.add({ event_id: 'new', type: 'b', ts: '', payload: {} });
 
       // Trigger cleanup via getEventsAfter

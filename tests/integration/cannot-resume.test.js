@@ -13,9 +13,9 @@ describe('Cannot Resume Integration', () => {
 
   beforeAll(async () => {
     serverProcess = spawn('node', ['server/src/server.js'], {
-      env: { 
-        ...process.env, 
-        PORT: port, 
+      env: {
+        ...process.env,
+        PORT: port,
         NODE_ENV: 'test',
         SSE_TICK_INTERVAL: '200',
         SSE_HEARTBEAT_INTERVAL: '60000',
@@ -44,33 +44,36 @@ describe('Cannot Resume Integration', () => {
 
   it('should send control.cannot_resume when event ID not found (SSRK-141)', async () => {
     const events = [];
-    
+
     await new Promise((resolve) => {
-      const req = http.get({
-        hostname: 'localhost',
-        port,
-        path: '/stream',
-        headers: { 'Last-Event-ID': 'non-existent-event-id-xyz' },
-      }, (res) => {
-        res.on('data', (chunk) => {
-          const raw = chunk.toString();
-          const blocks = raw.split('\n\n').filter(Boolean);
-          
-          for (const block of blocks) {
-            const parsed = parseSSEChunk(block + '\n\n');
-            if (parsed.data) {
-              const { envelope } = decodeSSE(parsed.data);
-              if (envelope) {
-                events.push(envelope);
-                if (envelope.type === 'control.cannot_resume') {
-                  req.destroy();
-                  resolve();
+      const req = http.get(
+        {
+          hostname: 'localhost',
+          port,
+          path: '/stream',
+          headers: { 'Last-Event-ID': 'non-existent-event-id-xyz' },
+        },
+        (res) => {
+          res.on('data', (chunk) => {
+            const raw = chunk.toString();
+            const blocks = raw.split('\n\n').filter(Boolean);
+
+            for (const block of blocks) {
+              const parsed = parseSSEChunk(block + '\n\n');
+              if (parsed.data) {
+                const { envelope } = decodeSSE(parsed.data);
+                if (envelope) {
+                  events.push(envelope);
+                  if (envelope.type === 'control.cannot_resume') {
+                    req.destroy();
+                    resolve();
+                  }
                 }
               }
             }
-          }
-        });
-      });
+          });
+        }
+      );
 
       setTimeout(() => {
         req.destroy();
@@ -78,8 +81,8 @@ describe('Cannot Resume Integration', () => {
       }, 3000);
     });
 
-    const cannotResume = events.find(e => e.type === 'control.cannot_resume');
-    
+    const cannotResume = events.find((e) => e.type === 'control.cannot_resume');
+
     expect(cannotResume).toBeDefined();
     expect(cannotResume.payload.code).toBe('event_not_found');
     expect(cannotResume.payload.requestedId).toBe('non-existent-event-id-xyz');
@@ -99,12 +102,12 @@ describe('Cannot Resume Integration', () => {
 
     // Set a fake lastEventId that doesn't exist
     connector.lastEventId = 'fake-event-id-that-does-not-exist';
-    
+
     // Disconnect and reconnect to trigger resume attempt
     connector.stop();
     connector.connect();
 
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     expect(cannotResumeInfo).not.toBeNull();
     expect(cannotResumeInfo.lastEventId).toBe('fake-event-id-that-does-not-exist');
@@ -132,7 +135,7 @@ describe('Cannot Resume Integration', () => {
     connector.stop();
     connector.connect();
 
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     expect(cannotResumeTriggered).toBe(true);
     // START_FRESH should clear the lastEventId
@@ -157,7 +160,7 @@ describe('Cannot Resume Integration', () => {
     connector.stop();
     connector.connect();
 
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     expect(cannotResumeTriggered).toBe(true);
     expect(connector.stopped).toBe(true);
@@ -175,7 +178,7 @@ describe('Cannot Resume Integration', () => {
     connector.stop();
     connector.connect();
 
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     const stats = connector.getStats();
     expect(stats.cannotResumeCount).toBe(1);
@@ -186,14 +189,17 @@ describe('Cannot Resume Integration', () => {
   it('should track cannot-resume metrics on server /health (SSRK-144)', async () => {
     // First trigger a cannot-resume
     await new Promise((resolve) => {
-      const req = http.get({
-        hostname: 'localhost',
-        port,
-        path: '/stream',
-        headers: { 'Last-Event-ID': 'metrics-test-fake-id' },
-      }, (res) => {
-        res.on('data', () => {});
-      });
+      const req = http.get(
+        {
+          hostname: 'localhost',
+          port,
+          path: '/stream',
+          headers: { 'Last-Event-ID': 'metrics-test-fake-id' },
+        },
+        (res) => {
+          res.on('data', () => {});
+        }
+      );
 
       setTimeout(() => {
         req.destroy();
@@ -203,11 +209,13 @@ describe('Cannot Resume Integration', () => {
 
     // Check health endpoint
     const health = await new Promise((resolve, reject) => {
-      http.get(`http://localhost:${port}/health`, (res) => {
-        let data = '';
-        res.on('data', chunk => data += chunk);
-        res.on('end', () => resolve(JSON.parse(data)));
-      }).on('error', reject);
+      http
+        .get(`http://localhost:${port}/health`, (res) => {
+          let data = '';
+          res.on('data', (chunk) => (data += chunk));
+          res.on('end', () => resolve(JSON.parse(data)));
+        })
+        .on('error', reject);
     });
 
     const cannotResumeTotal = health.metrics.counters.cannot_resume_total;
@@ -221,29 +229,32 @@ describe('Cannot Resume Integration', () => {
     let payload = null;
 
     await new Promise((resolve) => {
-      const req = http.get({
-        hostname: 'localhost',
-        port,
-        path: '/stream',
-        headers: { 'Last-Event-ID': 'action-test-fake-id' },
-      }, (res) => {
-        res.on('data', (chunk) => {
-          const raw = chunk.toString();
-          const blocks = raw.split('\n\n').filter(Boolean);
-          
-          for (const block of blocks) {
-            const parsed = parseSSEChunk(block + '\n\n');
-            if (parsed.data) {
-              const { envelope } = decodeSSE(parsed.data);
-              if (envelope && envelope.type === 'control.cannot_resume') {
-                payload = envelope.payload;
-                req.destroy();
-                resolve();
+      const req = http.get(
+        {
+          hostname: 'localhost',
+          port,
+          path: '/stream',
+          headers: { 'Last-Event-ID': 'action-test-fake-id' },
+        },
+        (res) => {
+          res.on('data', (chunk) => {
+            const raw = chunk.toString();
+            const blocks = raw.split('\n\n').filter(Boolean);
+
+            for (const block of blocks) {
+              const parsed = parseSSEChunk(block + '\n\n');
+              if (parsed.data) {
+                const { envelope } = decodeSSE(parsed.data);
+                if (envelope && envelope.type === 'control.cannot_resume') {
+                  payload = envelope.payload;
+                  req.destroy();
+                  resolve();
+                }
               }
             }
-          }
-        });
-      });
+          });
+        }
+      );
 
       setTimeout(() => {
         req.destroy();
@@ -265,17 +276,17 @@ describe('Cannot Resume Integration', () => {
     });
 
     // Wait for some events
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     // Set a fake ID
     connector.lastEventId = 'will-be-cleared';
-    
+
     expect(connector.lastEventId).toBe('will-be-cleared');
 
     connector.stop();
     connector.startFresh();
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     // lastEventId should be cleared and new events received
     expect(connector.lastEventId).not.toBe('will-be-cleared');

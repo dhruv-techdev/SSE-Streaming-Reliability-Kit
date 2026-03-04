@@ -1,65 +1,55 @@
 # Contributing to SSE Streaming Reliability Kit
 
-## Branch Naming Convention
+Thank you for your interest in contributing!
 
-```
-<type>/<ticket-id>-<short-description>
-```
+## Development Setup
 
-### Types
+```bash
+# Clone the repository
+git clone https://github.com/your-org/sse-streaming-reliability-kit.git
+cd sse-streaming-reliability-kit
 
-- `feature/` - New features
-- `bugfix/` - Bug fixes
-- `hotfix/` - Urgent fixes
-- `docs/` - Documentation
-- `refactor/` - Refactoring
-- `test/` - Tests
-- `chore/` - Maintenance
+# Install dependencies
+npm install
 
-### Examples
+# Run tests
+npm test
 
-```
-feature/SSRK-10-project-scaffolding
-bugfix/SSRK-25-fix-sse-timeout
+# Start dev server
+npm run dev
 ```
 
----
+## Making Changes
 
-## Commit Message Convention
+1. Create a feature branch: `git checkout -b feature/my-feature`
+2. Make your changes
+3. Run checks: `npm run ci`
+4. Commit with conventional commits: `git commit -m "feat: add feature"`
+5. Push and create PR
 
-Follow Conventional Commits:
+## Commit Messages
 
-```
-<type>(<scope>): <subject>
-```
+We use [Conventional Commits](https://www.conventionalcommits.org/):
 
-### Types
+- `feat:` - New feature
+- `fix:` - Bug fix
+- `docs:` - Documentation changes
+- `test:` - Adding/updating tests
+- `refactor:` - Code refactoring
+- `chore:` - Maintenance tasks
 
-| Type       | Description   |
-| ---------- | ------------- |
-| `feat`     | New feature   |
-| `fix`      | Bug fix       |
-| `docs`     | Documentation |
-| `style`    | Formatting    |
-| `refactor` | Refactoring   |
-| `test`     | Tests         |
-| `chore`    | Maintenance   |
+## Testing
 
-### Examples
+- Write tests for new features
+- Ensure all tests pass: `npm test`
+- Run harness scenarios: `npm run harness:all`
 
-```
-feat(server): add SSE heartbeat mechanism
-fix(client): handle reconnection on timeout
-docs: update README with setup instructions
-```
+## Code Style
 
----
+- Run lint: `npm run lint`
+- Run format: `npm run format`
+- Follow existing patterns
 
-## PR Checklist
+## Questions?
 
-- [ ] Branch follows naming convention
-- [ ] Commits follow conventional commits
-- [ ] Code passes `npm run lint`
-- [ ] Code passes `npm run format:check`
-- [ ] Tests added/updated (if applicable)
-- [ ] Documentation updated (if applicable)
+Open an issue for discussion.

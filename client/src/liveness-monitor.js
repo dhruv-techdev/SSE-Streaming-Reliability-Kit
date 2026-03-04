@@ -18,14 +18,14 @@ export class LivenessMonitor {
     this.timeoutMs = options.timeoutMs || Defaults.LIVENESS_TIMEOUT_MS;
     this.gracePeriodMs = options.gracePeriodMs || Defaults.LIVENESS_GRACE_PERIOD_MS;
     this.checkIntervalMs = options.checkIntervalMs || Math.floor(this.timeoutMs / 3);
-    
+
     // Callbacks (SSRK-125, SSRK-126)
     this.onLivenessFailure = options.onLivenessFailure || null;
     this.onLivenessRestored = options.onLivenessRestored || null;
-    
+
     // Debug
     this._debug = options.debug || false;
-    
+
     // State (SSRK-120)
     this._lastHeartbeatAt = null;
     this._lastEventAt = null;
@@ -34,7 +34,7 @@ export class LivenessMonitor {
     this._checkTimer = null;
     this._isRunning = false;
     this._hasFailed = false;
-    
+
     // Stats
     this._stats = {
       heartbeatsReceived: 0,
@@ -50,19 +50,21 @@ export class LivenessMonitor {
    */
   start() {
     if (this._isRunning) return this;
-    
+
     this._isRunning = true;
     this._startedAt = Date.now();
     this._hasFailed = false;
     this._firstHeartbeatReceived = false;
-    
+
     // Start periodic check (SSRK-122)
     this._scheduleCheck();
-    
+
     if (this._debug) {
-      console.log(`[LIVENESS] Started (timeout: ${this.timeoutMs}ms, grace: ${this.gracePeriodMs}ms)`);
+      console.log(
+        `[LIVENESS] Started (timeout: ${this.timeoutMs}ms, grace: ${this.gracePeriodMs}ms)`
+      );
     }
-    
+
     return this;
   }
 
@@ -71,7 +73,7 @@ export class LivenessMonitor {
    */
   _scheduleCheck() {
     if (!this._isRunning) return;
-    
+
     this._checkTimer = setTimeout(() => {
       this._performCheck();
     }, this.checkIntervalMs);
@@ -82,10 +84,10 @@ export class LivenessMonitor {
    */
   _performCheck() {
     if (!this._isRunning) return;
-    
+
     const now = Date.now();
     const elapsed = now - this._startedAt;
-    
+
     // Grace period check (SSRK-124)
     // Don't check liveness until after grace period AND first heartbeat
     if (elapsed < this.gracePeriodMs) {
@@ -95,7 +97,7 @@ export class LivenessMonitor {
       this._scheduleCheck();
       return;
     }
-    
+
     // Wait for first heartbeat before enforcing timeout (SSRK-124)
     if (!this._firstHeartbeatReceived) {
       if (this._debug) {
@@ -104,10 +106,10 @@ export class LivenessMonitor {
       this._scheduleCheck();
       return;
     }
-    
+
     // Check if heartbeat is missed (SSRK-123)
     const timeSinceLastHeartbeat = now - this._lastHeartbeatAt;
-    
+
     if (timeSinceLastHeartbeat > this.timeoutMs) {
       this._triggerFailure(timeSinceLastHeartbeat);
     } else {
@@ -124,18 +126,20 @@ export class LivenessMonitor {
    */
   _triggerFailure(timeSinceLastHeartbeat) {
     if (this._hasFailed) return; // Already failed, don't trigger twice
-    
+
     this._hasFailed = true;
     this._stats.failureCount++;
     this._stats.lastFailureAt = Date.now();
-    
+
     if (this._debug) {
-      console.log(`[LIVENESS] FAILURE - heartbeat missed (${timeSinceLastHeartbeat}ms > ${this.timeoutMs}ms)`);
+      console.log(
+        `[LIVENESS] FAILURE - heartbeat missed (${timeSinceLastHeartbeat}ms > ${this.timeoutMs}ms)`
+      );
     }
-    
+
     // Stop checking - we're going to trigger reconnect
     this.stop();
-    
+
     // Fire callback (SSRK-125)
     if (this.onLivenessFailure) {
       this.onLivenessFailure({
@@ -156,7 +160,7 @@ export class LivenessMonitor {
     this._lastHeartbeatAt = now;
     this._lastEventAt = now;
     this._stats.heartbeatsReceived++;
-    
+
     // Mark first heartbeat (SSRK-124)
     if (!this._firstHeartbeatReceived) {
       this._firstHeartbeatReceived = true;
@@ -164,7 +168,7 @@ export class LivenessMonitor {
         console.log(`[LIVENESS] First heartbeat received - liveness checks now active`);
       }
     }
-    
+
     // Reset failure state if we were in failed state
     if (this._hasFailed) {
       this._hasFailed = false;
@@ -191,16 +195,18 @@ export class LivenessMonitor {
    */
   stop() {
     if (!this._isRunning) return;
-    
+
     this._isRunning = false;
-    
+
     if (this._checkTimer) {
       clearTimeout(this._checkTimer);
       this._checkTimer = null;
     }
-    
+
     if (this._debug) {
-      console.log(`[LIVENESS] Stopped (heartbeats: ${this._stats.heartbeatsReceived}, failures: ${this._stats.failureCount})`);
+      console.log(
+        `[LIVENESS] Stopped (heartbeats: ${this._stats.heartbeatsReceived}, failures: ${this._stats.failureCount})`
+      );
     }
   }
 
@@ -214,6 +220,20 @@ export class LivenessMonitor {
     this._startedAt = null;
     this._firstHeartbeatReceived = false;
     this._hasFailed = false;
+  }
+
+  /**
+   * Reset for reconnect - preserves first-heartbeat state so liveness
+   * checking continues without waiting for a new "first" heartbeat.
+   * Sets _lastHeartbeatAt to now so the timeout counts from reconnect time.
+   */
+  resetForReconnect() {
+    this.stop();
+    this._lastHeartbeatAt = this._firstHeartbeatReceived ? Date.now() : null;
+    this._lastEventAt = null;
+    this._startedAt = null;
+    this._hasFailed = false;
+    // _firstHeartbeatReceived intentionally preserved
   }
 
   /**

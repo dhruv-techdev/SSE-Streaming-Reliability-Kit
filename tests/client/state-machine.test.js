@@ -136,40 +136,44 @@ describe('State Machine', () => {
     it('should call onStateChange on transition', () => {
       const callback = vi.fn();
       sm.setOnStateChange(callback);
-      
+
       sm.connect();
-      
+
       expect(callback).toHaveBeenCalledTimes(1);
-      expect(callback).toHaveBeenCalledWith(expect.objectContaining({
-        previous: ConnectionState.IDLE,
-        current: ConnectionState.CONNECTING,
-        reason: TransitionReason.USER_CONNECT,
-      }));
+      expect(callback).toHaveBeenCalledWith(
+        expect.objectContaining({
+          previous: ConnectionState.IDLE,
+          current: ConnectionState.CONNECTING,
+          reason: TransitionReason.USER_CONNECT,
+        })
+      );
     });
 
     it('should include metadata in callback', () => {
       const callback = vi.fn();
       sm.setOnStateChange(callback);
-      
+
       sm.connect();
       sm.error(TransitionReason.NETWORK_ERROR, { code: 'ECONNREFUSED' });
-      
-      expect(callback).toHaveBeenLastCalledWith(expect.objectContaining({
-        metadata: { code: 'ECONNREFUSED' },
-      }));
+
+      expect(callback).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          metadata: { code: 'ECONNREFUSED' },
+        })
+      );
     });
 
     it('should fire callback on every transition', () => {
       const callback = vi.fn();
       sm.setOnStateChange(callback);
-      
-      sm.connect();       // 1
-      sm.connected();     // 2
-      sm.error();         // 3
-      sm.retry();         // 4
-      sm.retrying();      // 5
-      sm.connected();     // 6
-      
+
+      sm.connect(); // 1
+      sm.connected(); // 2
+      sm.error(); // 3
+      sm.retry(); // 4
+      sm.retrying(); // 5
+      sm.connected(); // 6
+
       expect(callback).toHaveBeenCalledTimes(6);
     });
   });
@@ -178,18 +182,18 @@ describe('State Machine', () => {
     it('should close from OPEN state', () => {
       sm.connect();
       sm.connected();
-      
+
       const result = sm.close(TransitionReason.USER_STOP);
-      
+
       expect(result).toBe(true);
       expect(sm.state).toBe(ConnectionState.CLOSED);
     });
 
     it('should force close from any state', () => {
       sm.connect();
-      
+
       const result = sm.forceClose(TransitionReason.USER_STOP);
-      
+
       expect(result).toBe(true);
       expect(sm.state).toBe(ConnectionState.CLOSED);
     });
@@ -198,9 +202,9 @@ describe('State Machine', () => {
       sm.connect();
       sm.error();
       sm.retry();
-      
+
       const result = sm.forceClose(TransitionReason.USER_STOP);
-      
+
       expect(result).toBe(true);
       expect(sm.state).toBe(ConnectionState.CLOSED);
     });
@@ -209,7 +213,7 @@ describe('State Machine', () => {
       sm.connect();
       sm.connected();
       sm.forceClose();
-      
+
       // Can only reset from closed
       expect(sm.canTransitionTo(ConnectionState.CONNECTING)).toBe(false);
       expect(sm.canTransitionTo(ConnectionState.IDLE)).toBe(true);
@@ -219,23 +223,23 @@ describe('State Machine', () => {
   describe('Debug Logging (SSRK-95)', () => {
     it('should support debug mode toggle', () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-      
+
       sm.setDebug(true);
       sm.connect();
-      
+
       expect(consoleSpy).toHaveBeenCalled();
-      
+
       consoleSpy.mockRestore();
     });
 
     it('should not log when debug is off', () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-      
+
       sm.setDebug(false);
       sm.connect();
-      
+
       expect(consoleSpy).not.toHaveBeenCalled();
-      
+
       consoleSpy.mockRestore();
     });
   });
@@ -245,9 +249,9 @@ describe('State Machine', () => {
       sm.connect();
       sm.connected();
       sm.error();
-      
+
       const history = sm.getHistory();
-      
+
       expect(history.length).toBe(3);
       expect(history[0].from).toBe(ConnectionState.IDLE);
       expect(history[0].to).toBe(ConnectionState.CONNECTING);
@@ -257,7 +261,7 @@ describe('State Machine', () => {
     it('should track previous state', () => {
       sm.connect();
       expect(sm.previousState).toBe(ConnectionState.IDLE);
-      
+
       sm.connected();
       expect(sm.previousState).toBe(ConnectionState.CONNECTING);
     });
@@ -268,17 +272,17 @@ describe('State Machine', () => {
       sm.connect();
       sm.connected();
       sm.error();
-      
+
       const stats = sm.getStats();
-      
+
       expect(stats.transitionCount).toBe(3);
     });
 
     it('should track time in states', () => {
       sm.connect();
-      
+
       const stats = sm.getStats();
-      
+
       expect(stats.timeInState).toHaveProperty(ConnectionState.IDLE);
       expect(stats.timeInState).toHaveProperty(ConnectionState.CONNECTING);
     });
@@ -288,10 +292,10 @@ describe('State Machine', () => {
     it('successful connect flow', () => {
       // IDLE → CONNECTING → OPEN
       expect(sm.state).toBe(ConnectionState.IDLE);
-      
+
       sm.connect();
       expect(sm.state).toBe(ConnectionState.CONNECTING);
-      
+
       sm.connected();
       expect(sm.state).toBe(ConnectionState.OPEN);
     });
@@ -299,19 +303,19 @@ describe('State Machine', () => {
     it('server close with retry', () => {
       sm.connect();
       sm.connected();
-      
+
       // Server closes connection
       sm.error(TransitionReason.SERVER_CLOSE);
       expect(sm.state).toBe(ConnectionState.ERROR);
-      
+
       // Schedule retry
       sm.retry();
       expect(sm.state).toBe(ConnectionState.RETRYING);
-      
+
       // Attempt reconnect
       sm.retrying();
       expect(sm.state).toBe(ConnectionState.CONNECTING);
-      
+
       // Success
       sm.connected();
       expect(sm.state).toBe(ConnectionState.OPEN);
@@ -320,7 +324,7 @@ describe('State Machine', () => {
     it('parse error should not change state', () => {
       sm.connect();
       sm.connected();
-      
+
       // Parse errors are handled at connector level, not state machine
       // State should remain OPEN
       expect(sm.state).toBe(ConnectionState.OPEN);
@@ -331,20 +335,20 @@ describe('State Machine', () => {
       sm.connected();
       sm.error();
       sm.retry();
-      
+
       // User calls stop()
       sm.forceClose(TransitionReason.USER_STOP);
-      
+
       expect(sm.state).toBe(ConnectionState.CLOSED);
     });
 
     it('retry exhaustion flow', () => {
       sm.connect();
       sm.error();
-      
+
       // After max retries
       sm.close(TransitionReason.RETRY_EXHAUSTED);
-      
+
       expect(sm.state).toBe(ConnectionState.CLOSED);
     });
   });

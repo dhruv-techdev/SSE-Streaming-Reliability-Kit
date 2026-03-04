@@ -20,7 +20,7 @@ export class HeartbeatScheduler {
     this.onHeartbeat = options.onHeartbeat || null;
     this.onError = options.onError || null;
     this.debug = options.debug || false;
-    
+
     // State
     this._timer = null;
     this._isRunning = false;
@@ -34,14 +34,14 @@ export class HeartbeatScheduler {
    */
   start() {
     if (this._isRunning) return this;
-    
+
     this._isRunning = true;
     this._scheduleNext();
-    
+
     if (this.debug) {
       console.log(`[HEARTBEAT] [${this.connectionId}] Started (interval: ${this.intervalMs}ms)`);
     }
-    
+
     return this;
   }
 
@@ -50,7 +50,7 @@ export class HeartbeatScheduler {
    */
   _scheduleNext() {
     if (!this._isRunning) return;
-    
+
     this._timer = setTimeout(() => {
       this._sendHeartbeat();
     }, this.intervalMs);
@@ -62,7 +62,7 @@ export class HeartbeatScheduler {
    */
   _sendHeartbeat() {
     if (!this._isRunning) return;
-    
+
     const heartbeat = createHeartbeat({
       interval_ms: this.intervalMs,
       connection_id: this.connectionId,
@@ -70,7 +70,7 @@ export class HeartbeatScheduler {
 
     // Try to send heartbeat (SSRK-116: safe write)
     let success = false;
-    
+
     if (this.writer) {
       try {
         success = this.writer.sendEvent(heartbeat);
@@ -84,12 +84,12 @@ export class HeartbeatScheduler {
       this._heartbeatCount++;
       this._lastHeartbeatTime = Date.now();
       this._failedCount = 0; // Reset failed count on success
-      
+
       // Log heartbeat (SSRK-118)
       if (this.debug) {
         console.log(`[HEARTBEAT] [${this.connectionId}] Sent #${this._heartbeatCount}`);
       }
-      
+
       // Fire callback
       if (this.onHeartbeat) {
         this.onHeartbeat({
@@ -98,20 +98,20 @@ export class HeartbeatScheduler {
           timestamp: this._lastHeartbeatTime,
         });
       }
-      
+
       // Schedule next
       this._scheduleNext();
     } else {
       // Write failed (SSRK-116)
       this._failedCount++;
-      
+
       if (this.debug) {
         console.log(`[HEARTBEAT] [${this.connectionId}] Failed (count: ${this._failedCount})`);
       }
-      
+
       // Stop scheduler - connection is dead
       this.stop();
-      
+
       // Fire error callback
       if (this.onError) {
         this.onError({
@@ -137,14 +137,14 @@ export class HeartbeatScheduler {
    */
   stop() {
     if (!this._isRunning) return;
-    
+
     this._isRunning = false;
-    
+
     if (this._timer) {
       clearTimeout(this._timer);
       this._timer = null;
     }
-    
+
     if (this.debug) {
       console.log(`[HEARTBEAT] [${this.connectionId}] Stopped (sent: ${this._heartbeatCount})`);
     }
