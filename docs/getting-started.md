@@ -1,81 +1,87 @@
 # Getting Started
 
-This guide will help you integrate the SSE Streaming Reliability Kit in under 5 minutes.
+Get a reliable SSE stream running in 5 minutes.
 
-## Installation
+## Prerequisites
+
+- Node.js 18 or later
+- npm or yarn
+
+## Quick Start
+
+### 1. Install
 
 ```bash
 npm install sse-streaming-reliability-kit
 ```
 
-## Minimal Server
+### 2. Create a Server
+
+Create `server.js`:
 
 ```javascript
 import Fastify from 'fastify';
-import { createSSEWriter, createEnvelope } from 'sse-streaming-reliability-kit/server';
+import { createSSEWriter, generateEventId } from 'sse-streaming-reliability-kit/server';
 
 const app = Fastify();
 
 app.get('/events', (request, reply) => {
-  // Set SSE headers
   const writer = createSSEWriter(reply.raw);
   writer.init();
 
-  // Send periodic events
+  let seq = 0;
   const interval = setInterval(() => {
-    writer.sendEvent(
-      createEnvelope('domain.tick', {
-        timestamp: Date.now(),
-      })
-    );
+    writer.sendEvent({
+      event_id: generateEventId(),
+      type: 'domain.update',
+      ts: new Date().toISOString(),
+      sequence: ++seq,
+      payload: { value: Math.random() },
+    });
   }, 1000);
 
-  // Cleanup on disconnect
-  request.raw.on('close', () => {
-    clearInterval(interval);
-  });
-
+  request.raw.on('close', () => clearInterval(interval));
   reply.hijack();
 });
 
 app.listen({ port: 3000 });
-console.log('Server running at http://localhost:3000');
+console.log('Server: http://localhost:3000/events');
 ```
 
-## Minimal Client
+### 3. Create a Client
+
+Create `client.js`:
 
 ```javascript
 import { connectSSE } from 'sse-streaming-reliability-kit/client';
 
 const connector = connectSSE('http://localhost:3000/events', {
-  onEvent: (event) => {
-    console.log('Event:', event.type, event.payload);
-  },
-  onOpen: () => {
-    console.log('Connected!');
-  },
-  onClose: ({ willReconnect }) => {
-    console.log('Disconnected, will reconnect:', willReconnect);
-  },
+  onEvent: (e) => console.log(`Event #${e.sequence}:`, e.payload),
+  onOpen: () => console.log('Connected!'),
+  onClose: ({ willReconnect }) => console.log('Disconnected, reconnect:', willReconnect),
 });
-
-// Stop when done
-// connector.stop();
 ```
 
-## What You Get
+### 4. Run
 
-Out of the box:
+```bash
+# Terminal 1
+node server.js
 
-- ✅ Automatic reconnection with exponential backoff
-- ✅ Resume from last event on reconnect
-- ✅ Duplicate event detection
-- ✅ Connection state management
-- ✅ Error handling
+# Terminal 2
+node client.js
+```
+
+### 5. Test Reliability
+
+1. Kill the server (Ctrl+C)
+2. Watch the client retry
+3. Restart the server
+4. Client reconnects automatically!
 
 ## Next Steps
 
-- [Client API Reference](client-api.md)
-- [Server API Reference](server-api.md)
-- [Configuration Options](configuration.md)
-- [Metrics & Observability](metrics.md)
+- [Full README](../README.md) - Complete documentation
+- [Configuration](configuration.md) - All options
+- [Examples](../examples/) - More code examples
+- [API Reference](../README.md#api-surface) - Exports reference
