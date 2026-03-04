@@ -57,6 +57,7 @@ export class ScenarioRunner extends EventEmitter {
     this.cannotResumePayload = null;
     this.livenessFailures = 0;
     this.assertions = null;
+    this._preRestartReconnectCount = null;
 
     // Global timeout tracking (SSRK-199)
     this._globalStartTime = null;
@@ -184,6 +185,7 @@ export class ScenarioRunner extends EventEmitter {
     this.cannotResumeReceived = false;
     this.cannotResumePayload = null;
     this.livenessFailures = 0;
+    this._preRestartReconnectCount = null;
 
     // Create assertions context
     this.assertions = createAssertions(this);
@@ -462,11 +464,7 @@ export class ScenarioRunner extends EventEmitter {
   }
 
   async _stepStopServer(step) {
-    if (this.serverProcess) {
-      this.serverProcess.kill('SIGTERM');
-      this.serverProcess = null;
-      await this._sleep(200);
-    }
+    await this._stopServerProcess();
   }
 
   async _stepPauseEvents(step) {
@@ -509,10 +507,11 @@ export class ScenarioRunner extends EventEmitter {
   }
 
   async _stepRestartServer(step, scenario) {
-    if (this.serverProcess) {
-      this.serverProcess.kill('SIGTERM');
-      await this._sleep(500);
-    }
+    // Capture count before restart so WAIT_RECONNECT waits for the
+    // server-restart-triggered reconnect, not a later liveness one.
+    this._preRestartReconnectCount = this.connector?.stats.reconnectCount ?? 0;
+
+    await this._stopServerProcess();
 
     await this._startServer({
       ...scenario.config.server,
@@ -536,7 +535,11 @@ export class ScenarioRunner extends EventEmitter {
   async _stepWaitReconnect(step) {
     const timeout = step.timeout || 10000;
     const start = Date.now();
-    const initialCount = this.connector?.stats.reconnectCount || 0;
+    // Use the count captured at RESTART_SERVER time (if available) so we wait
+    // for the server-restart-triggered reconnect rather than a later one.
+    const initialCount =
+      this._preRestartReconnectCount ?? (this.connector?.stats.reconnectCount || 0);
+    this._preRestartReconnectCount = null;
 
     while ((this.connector?.stats.reconnectCount || 0) <= initialCount) {
       if (Date.now() - start > timeout) {
@@ -726,6 +729,7 @@ export class ScenarioRunner extends EventEmitter {
       ...process.env,
       PORT: config.port || this.options.serverPort,
       NODE_ENV: 'test',
+      SHUTDOWN_GRACE_PERIOD: String(config.shutdownGracePeriodMs || 50),
       SSE_TICK_INTERVAL: String(config.tickInterval || 200),
       SSE_HEARTBEAT_INTERVAL: String(config.heartbeatInterval || 1000),
       SSE_MAX_BUFFER_SIZE: String(config.maxBufferSize || 100),
@@ -738,21 +742,61 @@ export class ScenarioRunner extends EventEmitter {
     });
 
     await new Promise((resolve, reject) => {
+      const start = Date.now();
+      let settled = false;
+      let stderr = '';
+
+      const settle = (err) => {
+        if (settled) return;
+        settled = true;
+        clearInterval(checkReady);
+        clearTimeout(timeout);
+        this.serverProcess?.off('error', onError);
+        this.serverProcess?.off('exit', onExit);
+        this.serverProcess?.stderr?.off('data', onStderr);
+        if (err) reject(err);
+        else resolve();
+      };
+
+      const onError = (err) => settle(err);
+      const onExit = (code, signal) => {
+        settle(
+          new Error(
+            `Server exited before ready (code=${code ?? 'null'}, signal=${signal ?? 'null'})${
+              stderr ? `: ${stderr.trim()}` : ''
+            }`
+          )
+        );
+      };
+      const onStderr = (chunk) => {
+        stderr += chunk.toString();
+      };
+
+      const checkReady = setInterval(async () => {
+        try {
+          const ready = await this._isServerReady();
+          if (ready) settle();
+        } catch {
+          // Keep polling until timeout/ready.
+        }
+      }, 100);
+
       const timeout = setTimeout(() => {
-        reject(new Error('Server start timeout'));
+        settle(new Error('Server start timeout'));
       }, this.options.serverStartTimeout);
 
-      this.serverProcess.stdout.on('data', (data) => {
-        if (data.toString().includes('SSE Streaming')) {
-          clearTimeout(timeout);
-          resolve();
-        }
-      });
+      this.serverProcess.on('error', onError);
+      this.serverProcess.on('exit', onExit);
+      this.serverProcess.stderr?.on('data', onStderr);
 
-      this.serverProcess.on('error', (err) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
+      // Immediate probe to reduce startup latency.
+      this._isServerReady()
+        .then((ready) => {
+          if (ready && Date.now() - start <= this.options.serverStartTimeout) {
+            settle();
+          }
+        })
+        .catch(() => {});
     });
   }
 
@@ -765,12 +809,68 @@ export class ScenarioRunner extends EventEmitter {
       this.connector = null;
     }
 
-    if (this.serverProcess) {
-      this.serverProcess.kill('SIGTERM');
-      this.serverProcess = null;
-    }
+    await this._stopServerProcess();
+  }
 
-    await this._sleep(200);
+  /**
+   * Check whether server is accepting requests
+   */
+  _isServerReady() {
+    return new Promise((resolve) => {
+      const req = http.get(
+        {
+          hostname: 'localhost',
+          port: this.options.serverPort,
+          path: '/health',
+          timeout: 500,
+        },
+        (res) => {
+          res.resume();
+          resolve(res.statusCode >= 200 && res.statusCode < 500);
+        }
+      );
+
+      req.on('timeout', () => {
+        req.destroy();
+        resolve(false);
+      });
+
+      req.on('error', () => {
+        resolve(false);
+      });
+    });
+  }
+
+  /**
+   * Stop test server and wait for process exit
+   */
+  async _stopServerProcess() {
+    if (!this.serverProcess) return;
+
+    const proc = this.serverProcess;
+    this.serverProcess = null;
+
+    await new Promise((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(forceKillTimer);
+        clearTimeout(finalizeTimer);
+        resolve();
+      };
+
+      const forceKillTimer = setTimeout(() => {
+        if (!proc.killed) {
+          proc.kill('SIGKILL');
+        }
+      }, 2000);
+
+      const finalizeTimer = setTimeout(finish, 3000);
+
+      proc.once('exit', finish);
+      proc.kill('SIGTERM');
+    });
   }
 
   /**

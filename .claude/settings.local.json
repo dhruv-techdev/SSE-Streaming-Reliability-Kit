@@ -15,7 +15,8 @@
       "Bash(node -e \"import\\(''./shared/src/schema.js''\\).then\\(\\(\\) => console.log\\(''OK''\\)\\).catch\\(e => console.log\\(''Error:'', e.message\\)\\)\")",
       "Bash(PORT=3098 timeout 5 node server/src/server.js)",
       "Bash(node -e \"import\\(''globals''\\).then\\(m => console.log\\(Object.keys\\(m.default\\).slice\\(0, 10\\)\\)\\)\")",
-      "Bash(npm run harness:all)"
+      "Bash(npm run harness:all)",
+      "Bash(npm run harness run-all)"
     ]
   }
 }

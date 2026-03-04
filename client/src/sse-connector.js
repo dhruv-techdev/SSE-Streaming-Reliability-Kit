@@ -877,6 +877,7 @@ export class SSEConnector {
       if (this.options.onControl) {
         this.options.onControl(envelope);
       }
+      return;
     }
 
     this.options.onEvent(envelope);

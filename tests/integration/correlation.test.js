@@ -147,9 +147,13 @@ describe('Correlation ID Integration', () => {
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
     const stats = connector.getStats();
+    const serverStreamId =
+      typeof stats.serverStreamId === 'string'
+        ? stats.serverStreamId
+        : stats.serverStreamId?.stream_id;
 
-    expect(stats.serverStreamId).toBeDefined();
-    expect(stats.serverStreamId).toMatch(/^stream-/);
+    expect(serverStreamId).toBeDefined();
+    expect(serverStreamId).toMatch(/^stream-/);
     expect(stats.traceId).toBe(traceId);
 
     connector.stop();
