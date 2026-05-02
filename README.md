@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/your-org/sse-streaming-reliability-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/sse-streaming-reliability-kit/actions/workflows/ci.yml)
 [![npm version](https://badge.fury.io/js/sse-streaming-reliability-kit.svg)](https://badge.fury.io/js/sse-streaming-reliability-kit)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License](https://img.shields.io/badge/License-All%20Rights%20Reserved-red.svg)](LICENSE)
 
 A production-ready Server-Sent Events (SSE) reliability toolkit that handles reconnection, resume, deduplication, and observability out of the box.
 
@@ -769,7 +769,7 @@ npm run ci
 
 ## License
 
-MIT - see [LICENSE](LICENSE)
+Copyright (c) 2026 Dhruv Patel. All rights reserved. See [LICENSE](LICENSE).
 
 ---
 

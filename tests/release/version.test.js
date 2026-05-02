@@ -21,7 +21,7 @@ describe('Version & Release (SSRK-223)', () => {
   it('should have required package.json fields', () => {
     expect(pkg.name).toBe('sse-streaming-reliability-kit');
     expect(pkg.description).toBeDefined();
-    expect(pkg.license).toBe('MIT');
+    expect(pkg.license).toBe('UNLICENSED');
     expect(pkg.main).toBeDefined();
     expect(pkg.exports).toBeDefined();
     expect(pkg.files).toBeDefined();
@@ -52,7 +52,7 @@ describe('Version & Release (SSRK-223)', () => {
 
   it('should have LICENSE file', () => {
     const license = readFileSync(join(ROOT, 'LICENSE'), 'utf8');
-    expect(license).toContain('MIT License');
+    expect(license).toContain('All rights reserved.');
   });
 
   it('should have versioning documentation', () => {
