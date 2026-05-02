@@ -4,13 +4,16 @@ import globals from 'globals';
 export default [
   js.configs.recommended,
   {
-    ignores: ['node_modules/', 'dist/', 'build/', 'coverage/'],
+    ignores: ['**/node_modules/', '**/dist/', '**/build/', '**/coverage/'],
   },
   {
-    files: ['**/*.js', '**/*.ts'],
+    files: ['**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
+      parserOptions: {
+        ecmaFeatures: { jsx: true },
+      },
       globals: {
         ...globals.node,
         ...globals.browser,
