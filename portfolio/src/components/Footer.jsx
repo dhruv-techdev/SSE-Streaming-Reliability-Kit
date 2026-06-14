@@ -5,7 +5,6 @@ export default function Footer() {
   return (
     <footer className="py-16 border-t" style={{ background: '#0a0a0a', borderColor: '#1c1c1c' }}>
       <div className="max-w-7xl mx-auto px-6">
-
         {/* npm install strip */}
         <div
           className="flex flex-col sm:flex-row items-center justify-between gap-4 p-5 rounded-xl mb-12"
@@ -20,13 +19,20 @@ export default function Footer() {
           <div
             className="flex items-center gap-3 px-4 py-2.5 rounded-lg cursor-pointer group"
             style={{ background: '#1a1a1a', border: '1px solid #2a2a2a' }}
-            onClick={() => navigator.clipboard?.writeText('npm install sse-streaming-reliability-kit')}
+            onClick={() =>
+              navigator.clipboard?.writeText('npm install sse-streaming-reliability-kit')
+            }
           >
-            <span className="mono text-sm" style={{ color: '#6b7280' }}>$</span>
+            <span className="mono text-sm" style={{ color: '#6b7280' }}>
+              $
+            </span>
             <span className="mono text-sm" style={{ color: '#e5e5e5' }}>
               npm install sse-streaming-reliability-kit
             </span>
-            <span className="mono text-xs opacity-0 group-hover:opacity-100 transition-opacity ml-2" style={{ color: '#00ff88' }}>
+            <span
+              className="mono text-xs opacity-0 group-hover:opacity-100 transition-opacity ml-2"
+              style={{ color: '#00ff88' }}
+            >
               copy
             </span>
           </div>

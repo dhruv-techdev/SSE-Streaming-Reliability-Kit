@@ -119,20 +119,28 @@ export default function Hero() {
 
             <p className="text-lg mb-8 leading-relaxed" style={{ color: '#9ca3af' }}>
               Never lose an event again. Free, open-source, production-grade auto-reconnection,
-              resume from last event, deduplication, and Prometheus observability — all out of the box.
+              resume from last event, deduplication, and Prometheus observability — all out of the
+              box.
             </p>
 
             {/* npm install command */}
             <div
               className="flex items-center gap-3 px-4 py-3 rounded-lg mb-8 group cursor-pointer"
               style={{ background: '#0f0f0f', border: '1px solid #2a2a2a' }}
-              onClick={() => navigator.clipboard?.writeText('npm install sse-streaming-reliability-kit')}
+              onClick={() =>
+                navigator.clipboard?.writeText('npm install sse-streaming-reliability-kit')
+              }
             >
-              <span className="mono text-sm" style={{ color: '#6b7280' }}>$</span>
+              <span className="mono text-sm" style={{ color: '#6b7280' }}>
+                $
+              </span>
               <span className="mono text-sm flex-1" style={{ color: '#e5e5e5' }}>
                 npm install sse-streaming-reliability-kit
               </span>
-              <span className="mono text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: '#00ff88' }}>
+              <span
+                className="mono text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                style={{ color: '#00ff88' }}
+              >
                 copy
               </span>
             </div>

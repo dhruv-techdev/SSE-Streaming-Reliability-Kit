@@ -75,16 +75,36 @@ export default function OpenSource() {
             <span style={{ color: '#00ff88' }}>Forever free.</span>
           </h2>
           <p className="text-lg max-w-2xl mx-auto" style={{ color: '#9ca3af' }}>
-            MIT licensed. No paywalls, no rate limits, no vendor lock-in.
-            Clone it, fork it, ship it — it's yours.
+            MIT licensed. No paywalls, no rate limits, no vendor lock-in. Clone it, fork it, ship it
+            — it's yours.
           </p>
 
           <div className="flex items-center justify-center gap-3 mt-6 flex-wrap">
             {[
-              { label: 'MIT License', color: '#60a5fa', bg: 'rgba(59,130,246,0.08)', border: 'rgba(59,130,246,0.25)' },
-              { label: 'Open Source', color: '#c084fc', bg: 'rgba(168,85,247,0.08)', border: 'rgba(168,85,247,0.25)' },
-              { label: 'No Paywalls', color: '#00ff88', bg: 'rgba(0,255,136,0.08)', border: 'rgba(0,255,136,0.2)' },
-              { label: 'Node.js 18+', color: '#fbbf24', bg: 'rgba(251,191,36,0.08)', border: 'rgba(251,191,36,0.25)' },
+              {
+                label: 'MIT License',
+                color: '#60a5fa',
+                bg: 'rgba(59,130,246,0.08)',
+                border: 'rgba(59,130,246,0.25)',
+              },
+              {
+                label: 'Open Source',
+                color: '#c084fc',
+                bg: 'rgba(168,85,247,0.08)',
+                border: 'rgba(168,85,247,0.25)',
+              },
+              {
+                label: 'No Paywalls',
+                color: '#00ff88',
+                bg: 'rgba(0,255,136,0.08)',
+                border: 'rgba(0,255,136,0.2)',
+              },
+              {
+                label: 'Node.js 18+',
+                color: '#fbbf24',
+                bg: 'rgba(251,191,36,0.08)',
+                border: 'rgba(251,191,36,0.25)',
+              },
             ].map((b) => (
               <span
                 key={b.label}
@@ -149,9 +169,13 @@ export default function OpenSource() {
           <div
             className="inline-flex items-center gap-3 px-6 py-3.5 rounded-xl mb-8 cursor-pointer group"
             style={{ background: '#1a1a1a', border: '1px solid #2a2a2a' }}
-            onClick={() => navigator.clipboard?.writeText('npm install sse-streaming-reliability-kit')}
+            onClick={() =>
+              navigator.clipboard?.writeText('npm install sse-streaming-reliability-kit')
+            }
           >
-            <span className="mono text-base" style={{ color: '#6b7280' }}>$</span>
+            <span className="mono text-base" style={{ color: '#6b7280' }}>
+              $
+            </span>
             <span className="mono text-base" style={{ color: '#e5e5e5' }}>
               npm install sse-streaming-reliability-kit
             </span>
