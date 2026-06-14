@@ -8,6 +8,7 @@ import Features from './components/Features';
 import Stats from './components/Stats';
 import Companies from './components/Companies';
 import TechStack from './components/TechStack';
+import OpenSource from './components/OpenSource';
 import Footer from './components/Footer';
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
       <Stats />
       <Companies />
       <TechStack />
+      <OpenSource />
       <Footer />
     </div>
   );

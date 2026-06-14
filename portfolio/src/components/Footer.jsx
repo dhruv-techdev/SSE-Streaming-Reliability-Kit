@@ -5,6 +5,33 @@ export default function Footer() {
   return (
     <footer className="py-16 border-t" style={{ background: '#0a0a0a', borderColor: '#1c1c1c' }}>
       <div className="max-w-7xl mx-auto px-6">
+
+        {/* npm install strip */}
+        <div
+          className="flex flex-col sm:flex-row items-center justify-between gap-4 p-5 rounded-xl mb-12"
+          style={{ background: '#0f0f0f', border: '1px solid #1c1c1c' }}
+        >
+          <div>
+            <div className="text-sm font-semibold text-white mb-1">Get started in seconds</div>
+            <div className="mono text-xs" style={{ color: '#6b7280' }}>
+              Free &amp; open source · MIT License · Node.js 18+
+            </div>
+          </div>
+          <div
+            className="flex items-center gap-3 px-4 py-2.5 rounded-lg cursor-pointer group"
+            style={{ background: '#1a1a1a', border: '1px solid #2a2a2a' }}
+            onClick={() => navigator.clipboard?.writeText('npm install sse-streaming-reliability-kit')}
+          >
+            <span className="mono text-sm" style={{ color: '#6b7280' }}>$</span>
+            <span className="mono text-sm" style={{ color: '#e5e5e5' }}>
+              npm install sse-streaming-reliability-kit
+            </span>
+            <span className="mono text-xs opacity-0 group-hover:opacity-100 transition-opacity ml-2" style={{ color: '#00ff88' }}>
+              copy
+            </span>
+          </div>
+        </div>
+
         <div className="flex flex-col md:flex-row items-center justify-between gap-6">
           <div>
             <div className="text-lg font-bold mb-1">
@@ -15,17 +42,36 @@ export default function Footer() {
               </span>
             </div>
             <div className="text-sm" style={{ color: '#6b7280' }}>
-              Built by Dhruv Patel · All Rights Reserved
+              Built by Dhruv Patel ·{' '}
+              <a
+                href="https://github.com/dhruv-techdev/SSE-Streaming-Reliability-Kit/blob/main/LICENSE"
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: '#60a5fa' }}
+              >
+                MIT License
+              </a>{' '}
+              · Open Source for everyone
             </div>
           </div>
           <div className="flex items-center gap-3">
             <a
               href="https://github.com/dhruv-techdev/SSE-Streaming-Reliability-Kit"
               target="_blank"
+              rel="noreferrer"
               className="p-2.5 rounded-lg transition-all hover:opacity-80"
               style={{ background: '#0f0f0f', border: '1px solid #1c1c1c', color: '#9ca3af' }}
             >
               <Github size={18} />
+            </a>
+            <a
+              href="https://www.npmjs.com/package/sse-streaming-reliability-kit"
+              target="_blank"
+              rel="noreferrer"
+              className="px-3 py-2 rounded-lg transition-all hover:opacity-80 mono text-xs font-bold"
+              style={{ background: '#cb3837', color: '#fff' }}
+            >
+              npm
             </a>
             <a
               href="https://www.linkedin.com/in/dhruv-patel-20b959288"

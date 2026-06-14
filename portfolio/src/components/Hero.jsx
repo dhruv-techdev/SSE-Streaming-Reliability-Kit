@@ -3,17 +3,18 @@ import { motion } from 'framer-motion';
 import { ArrowDown } from 'lucide-react';
 
 const lines = [
-  { text: '> npm run dev', color: '#6b7280', delay: 0 },
-  { text: 'SSE Streaming Reliability Kit v1.0.0', color: '#00ff88', delay: 400 },
-  { text: 'Server:   http://localhost:3000', color: '#e5e5e5', delay: 800 },
-  { text: 'Health:   http://localhost:3000/health', color: '#e5e5e5', delay: 900 },
-  { text: 'Metrics:  http://localhost:3000/metrics', color: '#e5e5e5', delay: 1000 },
-  { text: 'Stream:   http://localhost:3000/stream', color: '#e5e5e5', delay: 1100 },
-  { text: '', delay: 1200 },
-  { text: '[CONNECT] stream-monsps6a-ti21kq3f  {total:1}', color: '#3b82f6', delay: 1500 },
-  { text: '[EVENT]   domain.stream.tick seq=1  ✓', color: '#00ff88', delay: 2000 },
-  { text: '[EVENT]   domain.stream.tick seq=2  ✓', color: '#00ff88', delay: 2500 },
-  { text: '[EVENT]   domain.stream.tick seq=3  ✓', color: '#00ff88', delay: 3000 },
+  { text: '> npm install sse-streaming-reliability-kit', color: '#6b7280', delay: 0 },
+  { text: 'added 1 package in 1.2s', color: '#9ca3af', delay: 600 },
+  { text: '', delay: 800 },
+  { text: '> npm run dev', color: '#6b7280', delay: 1000 },
+  { text: 'SSE Streaming Reliability Kit v1.0.0', color: '#00ff88', delay: 1400 },
+  { text: 'Server:   http://localhost:3000', color: '#e5e5e5', delay: 1700 },
+  { text: 'Stream:   http://localhost:3000/stream', color: '#e5e5e5', delay: 1800 },
+  { text: '', delay: 1900 },
+  { text: '[CONNECT] stream-monsps6a-ti21kq3f  {total:1}', color: '#3b82f6', delay: 2200 },
+  { text: '[EVENT]   domain.stream.tick seq=1  ✓', color: '#00ff88', delay: 2700 },
+  { text: '[EVENT]   domain.stream.tick seq=2  ✓', color: '#00ff88', delay: 3200 },
+  { text: '[EVENT]   domain.stream.tick seq=3  ✓', color: '#00ff88', delay: 3700 },
 ];
 
 function AnimatedTerminal() {
@@ -76,16 +77,38 @@ export default function Hero() {
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.8 }}
           >
-            <div
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded mono text-xs mb-8"
-              style={{
-                background: 'rgba(0,255,136,0.08)',
-                border: '1px solid rgba(0,255,136,0.2)',
-                color: '#00ff88',
-              }}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" />
-              Production Ready · All Rights Reserved
+            <div className="flex items-center gap-3 mb-8 flex-wrap">
+              <div
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded mono text-xs"
+                style={{
+                  background: 'rgba(0,255,136,0.08)',
+                  border: '1px solid rgba(0,255,136,0.2)',
+                  color: '#00ff88',
+                }}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" />
+                Production Ready
+              </div>
+              <div
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded mono text-xs"
+                style={{
+                  background: 'rgba(59,130,246,0.08)',
+                  border: '1px solid rgba(59,130,246,0.25)',
+                  color: '#60a5fa',
+                }}
+              >
+                MIT License
+              </div>
+              <div
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded mono text-xs"
+                style={{
+                  background: 'rgba(168,85,247,0.08)',
+                  border: '1px solid rgba(168,85,247,0.25)',
+                  color: '#c084fc',
+                }}
+              >
+                Open Source
+              </div>
             </div>
 
             <h1 className="text-5xl lg:text-6xl font-extrabold text-white leading-tight mb-6 tracking-tight">
@@ -95,9 +118,24 @@ export default function Hero() {
             </h1>
 
             <p className="text-lg mb-8 leading-relaxed" style={{ color: '#9ca3af' }}>
-              Never lose an event again. Production-grade auto-reconnection, resume from last event,
-              deduplication, and Prometheus observability — all out of the box.
+              Never lose an event again. Free, open-source, production-grade auto-reconnection,
+              resume from last event, deduplication, and Prometheus observability — all out of the box.
             </p>
+
+            {/* npm install command */}
+            <div
+              className="flex items-center gap-3 px-4 py-3 rounded-lg mb-8 group cursor-pointer"
+              style={{ background: '#0f0f0f', border: '1px solid #2a2a2a' }}
+              onClick={() => navigator.clipboard?.writeText('npm install sse-streaming-reliability-kit')}
+            >
+              <span className="mono text-sm" style={{ color: '#6b7280' }}>$</span>
+              <span className="mono text-sm flex-1" style={{ color: '#e5e5e5' }}>
+                npm install sse-streaming-reliability-kit
+              </span>
+              <span className="mono text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: '#00ff88' }}>
+                copy
+              </span>
+            </div>
 
             <div className="grid grid-cols-3 gap-4 mb-10">
               {[
@@ -120,7 +158,7 @@ export default function Hero() {
               ))}
             </div>
 
-            <div className="flex gap-4">
+            <div className="flex gap-4 flex-wrap">
               <a
                 href="https://github.com/dhruv-techdev/SSE-Streaming-Reliability-Kit"
                 target="_blank"
@@ -129,6 +167,15 @@ export default function Hero() {
                 style={{ background: '#00ff88', color: '#080808' }}
               >
                 View on GitHub
+              </a>
+              <a
+                href="https://www.npmjs.com/package/sse-streaming-reliability-kit"
+                target="_blank"
+                rel="noreferrer"
+                className="px-6 py-3 rounded-lg font-semibold text-sm transition-all"
+                style={{ background: '#cb3837', color: '#fff' }}
+              >
+                View on npm
               </a>
               <a
                 href="#terminals"
