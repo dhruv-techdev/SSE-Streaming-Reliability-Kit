@@ -1,8 +1,8 @@
 # SSE Streaming Reliability Kit
 
-[![CI](https://github.com/your-org/sse-streaming-reliability-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/sse-streaming-reliability-kit/actions/workflows/ci.yml)
+[![CI](https://github.com/dhruv-techdev/SSE-Streaming-Reliability-Kit/actions/workflows/ci.yml/badge.svg)](https://github.com/dhruv-techdev/SSE-Streaming-Reliability-Kit/actions/workflows/ci.yml)
 [![npm version](https://badge.fury.io/js/sse-streaming-reliability-kit.svg)](https://badge.fury.io/js/sse-streaming-reliability-kit)
-[![License](https://img.shields.io/badge/License-All%20Rights%20Reserved-red.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 A production-ready Server-Sent Events (SSE) reliability toolkit that handles reconnection, resume, deduplication, and observability out of the box.
 
@@ -48,8 +48,8 @@ Get a reliable SSE stream running in 5 minutes. (SSRK-226)
 ### Step 1: Clone and Install
 
 ```bash
-git clone https://github.com/your-org/sse-streaming-reliability-kit.git
-cd sse-streaming-reliability-kit
+git clone https://github.com/dhruv-techdev/SSE-Streaming-Reliability-Kit.git
+cd SSE-Streaming-Reliability-Kit
 npm install
 ```
 
@@ -769,7 +769,7 @@ npm run ci
 
 ## License
 
-Copyright (c) 2026 Dhruv Patel. All rights reserved. See [LICENSE](LICENSE).
+MIT License — see [LICENSE](LICENSE) for details.
 
 ---
 

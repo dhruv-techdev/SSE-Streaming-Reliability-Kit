@@ -190,12 +190,38 @@ jobs:
           node -e "import('./harness/src/index.js').then(() => console.log('✓ Harness modules OK'))"
 
   # ============================================================
+  # Portfolio Build Gate
+  # ============================================================
+  portfolio:
+    name: Portfolio Build
+    runs-on: ubuntu-latest
+    needs: install
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install portfolio dependencies
+        run: npm ci
+        working-directory: portfolio
+
+      - name: Build portfolio
+        run: npm run build
+        working-directory: portfolio
+
+  # ============================================================
   # Final Status Check
   # ============================================================
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [lint, format, test, harness, build]
+    needs: [lint, format, test, harness, build, portfolio]
     if: success()
 
     steps:
@@ -209,4 +235,5 @@ jobs:
           echo "║  ✓ Unit tests passed                                      ║"
           echo "║  ✓ Harness scenarios passed                               ║"
           echo "║  ✓ Build check passed                                     ║"
+          echo "║  ✓ Portfolio build passed                                 ║"
           echo "╚═══════════════════════════════════════════════════════════╝"

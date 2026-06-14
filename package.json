@@ -47,16 +47,16 @@
     "event-sourcing",
     "real-time"
   ],
-  "author": "",
-  "license": "UNLICENSED",
+  "author": "Dhruv Patel",
+  "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-org/sse-streaming-reliability-kit.git"
+    "url": "https://github.com/dhruv-techdev/SSE-Streaming-Reliability-Kit.git"
   },
   "bugs": {
-    "url": "https://github.com/your-org/sse-streaming-reliability-kit/issues"
+    "url": "https://github.com/dhruv-techdev/SSE-Streaming-Reliability-Kit/issues"
   },
-  "homepage": "https://github.com/your-org/sse-streaming-reliability-kit#readme",
+  "homepage": "https://github.com/dhruv-techdev/SSE-Streaming-Reliability-Kit#readme",
   "engines": {
     "node": ">=18.0.0"
   },
