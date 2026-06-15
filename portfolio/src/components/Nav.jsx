@@ -7,7 +7,7 @@ const links = [
   { name: 'Features', href: '#features' },
   { name: 'Results', href: '#stats' },
   { name: 'Companies', href: '#companies' },
-  { name: 'Open Source', href: '#open-source' },
+  { name: 'Use Cases', href: '#open-source' },
 ];
 
 export default function Nav() {
