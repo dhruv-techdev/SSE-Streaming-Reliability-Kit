@@ -53,7 +53,7 @@ export const config = {
   },
 };
 
-// Log config in development
-if (config.nodeEnv === 'development') {
-  console.log('Server config:', JSON.stringify(config, null, 2));
-}
+// NOTE: This module must stay free of import-time side effects (e.g. logging to
+// stdout). `config` is re-exported from the package entry point, so anything
+// logged here would fire merely from `import 'sse-streaming-reliability-kit'`.
+// The reference server prints the active config in its startup banner instead.
