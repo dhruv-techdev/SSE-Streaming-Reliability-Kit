@@ -56,7 +56,13 @@ export * from './client/index.js';
 export * from './server/index.js';
 
 // Version
-import pkg from '../package.json' assert { type: 'json' };
+// Read package.json via createRequire so this works across all Node versions.
+// Node 22 removed the old assert { type: 'json' } syntax, and the newer
+// with { type: 'json' } import attributes are unsupported on Node 18.0-18.19
+// and 20.0-20.9. createRequire sidesteps import attributes entirely.
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const pkg = require('../package.json');
 export const version = pkg.version;
 `;
 
