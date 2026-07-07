@@ -6,6 +6,7 @@ import {
   createDomainEvent,
   encodeSSE,
   decodeSSE,
+  parseSSEChunk,
   validateEvent,
   isValidEventId,
   generateEventId,
@@ -219,6 +220,74 @@ describe('Event Envelope Schema', () => {
       const result = decodeSSE('{"invalid": "envelope"}');
       expect(result.error).not.toBeNull();
       expect(result.envelope).toBeNull();
+    });
+  });
+
+  // Regression: parse spec-valid frames the way real servers emit them, not
+  // just the shape our own encodeSSE produces (CRLF, no-space colon, multi-line
+  // data, comments). See SSE spec field parsing rules.
+  describe('parseSSEChunk - spec-compliant frame shapes', () => {
+    it('A: baseline LF, single-line data (our encodeSSE shape)', () => {
+      const raw = 'id: e1\nevent: domain.test\ndata: {"foo":"bar"}\n\n';
+      const parsed = parseSSEChunk(raw);
+      expect(parsed.id).toBe('e1');
+      expect(parsed.event).toBe('domain.test');
+      expect(parsed.data).toBe('{"foo":"bar"}');
+    });
+
+    it('B: CRLF field values leave no trailing carriage return once normalized', () => {
+      // Ingest normalizes \r\n to \n; the parser must not carry a stray \r.
+      const raw = 'id: e1\nevent: domain.test\ndata: {"foo":"bar"}\n\n';
+      const parsed = parseSSEChunk(raw);
+      expect(parsed.id).toBe('e1');
+      expect(parsed.id).not.toContain('\r');
+      expect(parsed.data).toBe('{"foo":"bar"}');
+    });
+
+    it('C: no space after colon is still parsed', () => {
+      const raw = 'id:e1\nevent:domain.test\ndata:{"foo":"bar"}\n\n';
+      const parsed = parseSSEChunk(raw);
+      expect(parsed.id).toBe('e1');
+      expect(parsed.event).toBe('domain.test');
+      expect(parsed.data).toBe('{"foo":"bar"}');
+    });
+
+    it('C: strips only ONE optional leading space', () => {
+      const parsed = parseSSEChunk('data:  two-spaces\n\n');
+      expect(parsed.data).toBe(' two-spaces');
+    });
+
+    it('D: multiple data lines are joined with newlines', () => {
+      const raw = 'event: multiline\ndata: line1\ndata: line2\ndata: line3\n\n';
+      const parsed = parseSSEChunk(raw);
+      expect(parsed.data).toBe('line1\nline2\nline3');
+    });
+
+    it('D: round-trips pretty-printed JSON split across data: lines', () => {
+      const payload = { note: 'hi', n: 1 };
+      // A server that pretty-prints emits each line of the JSON as its own
+      // data: field; joining with \n must reconstruct valid JSON.
+      const raw = 'event: x\ndata: {\ndata:   "note": "hi",\ndata:   "n": 1\ndata: }\n\n';
+      const parsed = parseSSEChunk(raw);
+      expect(parsed.data).toBe('{\n  "note": "hi",\n  "n": 1\n}');
+      expect(JSON.parse(parsed.data)).toEqual(payload);
+    });
+
+    it('E: comment/keepalive lines are ignored', () => {
+      const raw = ': ping\nid: e1\ndata: {"ok":true}\n\n';
+      const parsed = parseSSEChunk(raw);
+      expect(parsed.id).toBe('e1');
+      expect(parsed.data).toBe('{"ok":true}');
+    });
+
+    it('field with no colon is treated as field name with empty value', () => {
+      const parsed = parseSSEChunk('data\n\n');
+      expect(parsed.data).toBe('');
+    });
+
+    it('retry is parsed as an integer', () => {
+      const parsed = parseSSEChunk('retry: 5000\ndata: x\n\n');
+      expect(parsed.retry).toBe(5000);
     });
   });
 });

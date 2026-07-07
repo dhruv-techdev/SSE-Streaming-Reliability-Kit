@@ -720,7 +720,9 @@ export class SSEConnector {
       this._resetTimeout();
       this.stats.bytesReceived += chunk.length;
 
-      buffer += chunk.toString();
+      // Normalize CRLF / lone CR to LF before buffering so boundary detection
+      // and field parsing work against spec-compliant servers (nginx, Go, etc.).
+      buffer += chunk.toString().replace(/\r\n?/g, '\n');
 
       const parts = buffer.split('\n\n');
       buffer = parts.pop() || '';
@@ -733,9 +735,10 @@ export class SSEConnector {
     });
 
     res.on('end', () => {
-      if (!this._stopped) {
-        this._handleDisconnect(TransitionReason.SERVER_CLOSE);
-      }
+      if (this._stopped) return;
+      // Flush a final event that arrived without a trailing blank line.
+      if (buffer.trim()) this._processEvent(buffer);
+      this._handleDisconnect(TransitionReason.SERVER_CLOSE);
     });
 
     res.on('error', (err) => {
