@@ -146,19 +146,28 @@ export function decodeSSE(data) {
  */
 export function parseSSEChunk(raw) {
   const result = { id: null, event: null, data: null, retry: null };
+  const dataLines = [];
 
-  const lines = raw.split('\n');
-  for (const line of lines) {
-    if (line.startsWith('id: ')) {
-      result.id = line.slice(4);
-    } else if (line.startsWith('event: ')) {
-      result.event = line.slice(7);
-    } else if (line.startsWith('data: ')) {
-      result.data = line.slice(6);
-    } else if (line.startsWith('retry: ')) {
-      result.retry = parseInt(line.slice(7), 10);
-    }
+  for (const line of raw.split('\n')) {
+    // Blank line (event boundary) or comment line — ignore.
+    if (line === '' || line.startsWith(':')) continue;
+
+    // Field name is everything up to the first colon; the rest is the value.
+    const i = line.indexOf(':');
+    const field = i === -1 ? line : line.slice(0, i);
+    let value = i === -1 ? '' : line.slice(i + 1);
+
+    // A single optional leading space after the colon is stripped (spec).
+    if (value[0] === ' ') value = value.slice(1);
+
+    if (field === 'id') result.id = value;
+    else if (field === 'event') result.event = value;
+    else if (field === 'data') dataLines.push(value);
+    else if (field === 'retry') result.retry = parseInt(value, 10);
   }
+
+  // Multiple data: lines are joined with newlines (spec).
+  if (dataLines.length) result.data = dataLines.join('\n');
 
   return result;
 }
